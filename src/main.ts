@@ -1,7 +1,7 @@
 import './style.css'
 import { decide } from './ai'
 import { input } from './input'
-import { beats, CHANNEL_MIN_MANA, ELEMENT_COUNT, pulsePhase, round, STEP, step, ULT_MAX, type Mage } from './sim'
+import { beats, ELEMENT_COUNT, pulsePhase, round, STEP, step, ULT_MAX, type Mage } from './sim'
 import { MAGES } from './mages'
 import { view } from './view'
 
@@ -142,9 +142,6 @@ function run(arena: ReturnType<typeof view>) {
     blink.style.setProperty('--cd',String(m.cooldown/1.25))
     blink.querySelector('.cd')!.textContent = seconds(m.cooldown)
     readyFlash('blink',!m.cooldown)
-    const s1 = slot('skill1')
-    s1.classList.toggle('active',m.charge > 0)
-    s1.classList.toggle('nomana',m.mana < CHANNEL_MIN_MANA && m.charge === 0)
   }
   function updatePlates() {
     duel.mages.forEach((m,i) => {

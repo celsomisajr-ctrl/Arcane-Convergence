@@ -20,14 +20,14 @@
 <div id="status"></div>
 <div id="announce"></div>
 <div id="banner" hidden><div class="portrait"><svg viewBox="0 0 24 24"><use href="#i-ult0"/></svg></div><div><small></small><b></b></div></div>
-<footer>WASD Move · Mouse Aim · Click Basic attack · Right-click/1 Skill 1 (hold) · Space/F Blink · Hold R to aim the Ultimate, release to cast (R again releases early) · Clash: 1 or E on the beat</footer>
+<footer>WASD Move · Mouse Aim · Click Basic attack · Space/F Blink · Hold R to aim the Ultimate, release to cast (R again releases early)</footer>
 <div id="stickzone"><div id="stick"><i></i></div></div>
 <div id="cancel" hidden><span>✕</span><small>Cancel</small></div>
 <div id="skills" aria-label="Skills">
   <button data-action="ult" class="ult" aria-label="Ultimate"><svg class="icon" viewBox="0 0 24 24"><use href="#i-ult0"/></svg><span class="cd"></span><span class="key">R</span></button>
   <button data-action="skill3" class="skill s3 locked" aria-label="Skill 3 (locked)"><svg class="icon" viewBox="0 0 24 24"><use href="#i-lock"/></svg><span class="key">3</span></button>
   <button data-action="skill2" class="skill s2 locked" aria-label="Skill 2 (locked)"><svg class="icon" viewBox="0 0 24 24"><use href="#i-lock"/></svg><span class="key">2</span></button>
-  <button data-action="skill1" class="skill s1" aria-label="Skill 1: Beam"><svg class="icon" viewBox="0 0 24 24"><use href="#i-beam"/></svg><span class="cost"></span><span class="key">1</span></button>
+  <button data-action="skill1" class="skill s1 locked" aria-label="Skill 1 (locked)"><svg class="icon" viewBox="0 0 24 24"><use href="#i-lock"/></svg><span class="key">1</span></button>
   <button data-action="basic" class="basic" aria-label="Basic attack"><svg class="icon" viewBox="0 0 24 24"><use href="#i-basic"/></svg><span class="cd"></span></button>
   <button data-action="blink" class="spell" aria-label="Blink"><svg class="icon" viewBox="0 0 24 24"><use href="#i-blink"/></svg><span class="cd"></span><span class="key">F</span></button>
 </div>
@@ -43,7 +43,7 @@
   <symbol id="i-ult4" viewBox="0 0 24 24"><path fill="currentColor" d="M3 20l4-9 4 3 3-8 7 14z"/><circle cx="17" cy="5" r="2" fill="currentColor"/></symbol>
 </defs></svg>
 <div id="rotate" hidden><div class="phone"></div><p>Rotate your phone to landscape</p><small>The duel is paused</small></div>
-<div id="overlay"><article><p class="kicker">1V1 MAGE DUEL / PLAYABLE GREYBOX</p><h1>Arcane <br>Convergence</h1><p id="message">Choose your mage. Tap a skill to auto-aim, or drag it to aim. When your Ultimate ring is full, drag it onto the rival to cast the Weave. When beams collide, tap Skill 1 on the beat.</p><div id="mages" role="radiogroup" aria-label="Choose your mage"></div><label id="difficulty-label">Rival difficulty <select id="difficulty"><option>Apprentice</option><option selected>Adept</option><option>Archmage</option></select></label><button id="start">Enter the arena</button></article></div>
+<div id="overlay"><article><p class="kicker">1V1 MAGE DUEL / PLAYABLE GREYBOX</p><h1>Arcane <br>Convergence</h1><p id="message">Choose your mage. Tap to attack and blink to dodge. When your Ultimate ring is full, drag it onto the rival to cast the Weave.</p><div id="mages" role="radiogroup" aria-label="Choose your mage"></div><label id="difficulty-label">Rival difficulty <select id="difficulty"><option>Apprentice</option><option selected>Adept</option><option>Archmage</option></select></label><button id="start">Enter the arena</button></article></div>
 <script type="module" src="/src/main.ts"></script>
 </body>
 </html>
