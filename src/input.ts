@@ -1,6 +1,6 @@
 import { delta, unit, type Command, type Duel, type Point } from './sim'
 
-export function input(canvas: HTMLCanvasElement, project: (x:number,y:number)=>Point|undefined) {
+export function input(canvas: HTMLCanvasElement, project: (x:number,y:number)=>Point|undefined, forward: () => Point) {
   const keys = new Set<string>()
   let locked = true
   let mouse: {x:number;y:number}|undefined
@@ -89,10 +89,11 @@ export function input(canvas: HTMLCanvasElement, project: (x:number,y:number)=>P
       const [player,rival] = s.mages
       const point = !this.locked && mouse ? project(mouse.x,mouse.y) : undefined
       const aim = delta(player.p,point ?? rival.p)
-      const move = {
-        x:Number(keys.has('KeyD'))-Number(keys.has('KeyA'))+stick.x,
-        z:Number(keys.has('KeyS'))-Number(keys.has('KeyW'))+stick.z,
-      }
+      // Camera-relative: W/stick-up moves away from the camera, D/stick-right to screen right.
+      const f = forward()
+      const ahead = Number(keys.has('KeyW'))-Number(keys.has('KeyS'))-stick.z
+      const right = Number(keys.has('KeyD'))-Number(keys.has('KeyA'))+stick.x
+      const move = { x:f.x*ahead-f.z*right, z:f.z*ahead+f.x*right }
       const command = {move,aim,hold:mouseHeld || touchHeld,...taps}
       if (cycle) command.element = (player.element+1)%3
       taps = {}

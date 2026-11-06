@@ -32,7 +32,7 @@ try {
 }
 if (arena) run(arena)
 function run(arena: ReturnType<typeof view>) {
-  const controls = input(canvas,arena.aim)
+  const controls = input(canvas,arena.aim,arena.forward)
   start.addEventListener('click',() => {
     const previousElement = duel.mages[0].element
     if (matchEnded) {
