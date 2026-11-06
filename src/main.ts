@@ -9,6 +9,24 @@ const canvas = document.querySelector('canvas')!
 const overlay = get('overlay')
 const message = get('message')
 const start = get<HTMLButtonElement>('start')
+// Phones play in landscape. Android can lock it (in fullscreen); iPhone can't, so in
+// portrait we show a rotate prompt and pause the duel until the phone is turned.
+const touch = matchMedia('(pointer: coarse)').matches
+const portrait = matchMedia('(orientation: portrait)')
+const rotate = get('rotate')
+const blockedByPortrait = () => touch && portrait.matches
+async function preferLandscape() {
+  if (!touch) return
+  try {
+    if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+      await document.documentElement.requestFullscreen({navigationUI:'hide'})
+    }
+    const orientation = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> }
+    await orientation.lock?.('landscape')
+  } catch {
+    // Not supported here (e.g. iPhone Safari): the rotate prompt covers it.
+  }
+}
 const labels = ['Fire','Gold Threads','Frost']
 const hp = [get<HTMLMeterElement>('hp0'),get<HTMLMeterElement>('hp1')]
 const mp = [get<HTMLMeterElement>('mp0'),get<HTMLMeterElement>('mp1')]
@@ -38,6 +56,7 @@ if (arena) run(arena)
 function run(arena: ReturnType<typeof view>) {
   const controls = input(canvas,arena.aim,arena.forward)
   start.addEventListener('click',() => {
+    void preferLandscape()
     const previousElement = duel.mages[0].element
     if (matchEnded) {
       wins = losses = 0
@@ -55,7 +74,9 @@ function run(arena: ReturnType<typeof view>) {
   function frame(now: number) {
     const dt = last ? Math.min(.1,(now-last)/1000) : 0
     last = now
-    if (playing && !debug?.paused) {
+    // Show the rotate prompt only during a match, so the menu stays usable in portrait.
+    rotate.hidden = !(playing && blockedByPortrait())
+    if (playing && !debug?.paused && rotate.hidden) {
       lockFreeze = Math.max(0,lockFreeze-dt)
       impactFreeze = Math.max(0,impactFreeze-dt)
       accumulator += impactFreeze ? 0 : dt*(lockFreeze ? .22 : 1)
