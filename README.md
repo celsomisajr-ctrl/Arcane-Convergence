@@ -9,7 +9,7 @@ npm ci
 npm run dev
 ```
 
-WASD moves, the mouse aims in free aim mode, and Q toggles the default lock-on. Hold left click to channel, right click to interrupt with a bolt, and press Space to blink. Use 1–3 to select an element when idle. During a clash, keep holding channel and tap E once per beat as the marker crosses the bright band. On touchscreens, move with the virtual stick and use the on-screen buttons with auto-aim.
+WASD moves, the mouse aims in free aim mode, and Q toggles the default lock-on. Hold left click to channel, right click to interrupt with a bolt, and press Space to blink. Use 1–3 to select an element when idle. During a clash your channel holds itself: tap Channel (left click or the Channel button), or E, once per beat as the marker crosses the bright band. Blink to break away. On touchscreens, move with the virtual stick and use the on-screen buttons with auto-aim.
 
 Fire deals direct damage, Gold Threads slow and drain mana, and Frost blocks and reflects bolts. Fire beats Gold, Gold beats Frost, and Frost beats Fire in a clash. Releasing a charged channel early outside a clash launches a weaker projectile.
 
