@@ -1,38 +1,61 @@
 import { delta, unit, type Command, type Duel, type Point } from './sim'
 
+// Controls follow the on-screen buttons: Basic attack, Skill 1–3 and the Ultimate.
+// Desktop: left click = Basic, right-click hold or 1 = Skill 1, Space or 2 = Skill 2,
+// 3 = Skill 3, R hold = Ultimate, E = clash pulse, Q = lock-on.
+// Touch: the stick moves; the right-hand cluster mirrors the same slots.
+
+type Held = 'skill1' | 'ult'
+type Tap = 'basic' | 'skill2' | 'skill3' | 'pulse'
+
 export function input(canvas: HTMLCanvasElement, project: (x:number,y:number)=>Point|undefined, forward: () => Point) {
   const keys = new Set<string>()
   let locked = true
   let mouse: {x:number;y:number}|undefined
   let touchMode = matchMedia('(pointer: coarse)').matches
   let stick = {x:0,z:0}
-  let taps: Partial<Command> = {}
-  /** A fresh Channel press since the last tick. */
-  let channelTap = false
-  // The Ultimate is a toggle: one press starts it, it pours until mana runs out, and another
-  // press (outside a clash) releases it early. Inside a clash each press is a pulse.
-  let ultimate = false
-  let ultimateTicks = 0
-  let ultimateStarted = false
+  /** Held slots, by source, so a key release doesn't cancel a still-held button. */
+  const held = { skill1:new Set<string>(), ult:new Set<string>() }
+  let taps: Partial<Record<Tap,boolean>> = {}
+  /** A fresh Skill 1 press since the last tick; in a clash it is a pulse. */
+  let skill1Press = false
+
+  const press = (slot: Held, source: string) => {
+    if (slot === 'skill1' && !held.skill1.size) skill1Press = true
+    held[slot].add(source)
+  }
+  const release = (slot: Held, source: string) => held[slot].delete(source)
+
   function reset() {
     keys.clear()
-    channelTap = ultimate = ultimateStarted = false
-    stick = {x:0,z:0}
+    held.skill1.clear()
+    held.ult.clear()
     taps = {}
+    skill1Press = false
+    stick = {x:0,z:0}
     document.querySelector<HTMLElement>('#stick i')!.style.transform = ''
   }
   addEventListener('blur',reset)
   document.addEventListener('visibilitychange',reset)
+
+  const playing = () => document.querySelector<HTMLElement>('#overlay')!.hidden
   addEventListener('keydown',e => {
-    if (/^(Key[WASDEQ]|Space)$/.test(e.code) && !e.repeat && document.querySelector<HTMLElement>('#overlay')!.hidden) {
-      e.preventDefault()
-      keys.add(e.code)
-      if (e.code === 'KeyQ') locked = !locked
-      if (e.code === 'KeyE') taps.pulse = true
-      if (e.code === 'Space') taps.dash = true
-    }
+    if (!/^(Key[WASDEQR]|Digit[123]|Space)$/.test(e.code) || e.repeat || !playing()) return
+    e.preventDefault()
+    keys.add(e.code)
+    if (e.code === 'KeyQ') locked = !locked
+    if (e.code === 'KeyE') taps.pulse = true
+    if (e.code === 'Digit1') press('skill1','key')
+    if (e.code === 'Digit2' || e.code === 'Space') taps.skill2 = true
+    if (e.code === 'Digit3') taps.skill3 = true
+    if (e.code === 'KeyR') press('ult','key')
   })
-  addEventListener('keyup',e => keys.delete(e.code))
+  addEventListener('keyup',e => {
+    keys.delete(e.code)
+    if (e.code === 'Digit1') release('skill1','key')
+    if (e.code === 'KeyR') release('ult','key')
+  })
+
   canvas.addEventListener('contextmenu',e => e.preventDefault())
   canvas.addEventListener('pointermove',e => {
     if (e.pointerType === 'mouse') mouse = {x:e.clientX,y:e.clientY}
@@ -40,9 +63,13 @@ export function input(canvas: HTMLCanvasElement, project: (x:number,y:number)=>P
   canvas.addEventListener('pointerdown',e => {
     if (e.pointerType !== 'mouse') return
     touchMode = false
-    if (e.button === 0) channelTap = true
-    if (e.button === 2) taps.bolt = true
+    if (e.button === 0) taps.basic = true
+    if (e.button === 2) press('skill1','mouse')
   })
+  addEventListener('pointerup',e => {
+    if (e.pointerType === 'mouse' && e.button === 2) release('skill1','mouse')
+  })
+
   const pad = document.querySelector<HTMLElement>('#stick')!
   let stickPointer: number | null = null
   function moveStick(e: PointerEvent) {
@@ -66,19 +93,29 @@ export function input(canvas: HTMLCanvasElement, project: (x:number,y:number)=>P
     stick = {x:0,z:0}
     pad.querySelector('i')!.style.transform = ''
   })
-  document.querySelectorAll<HTMLButtonElement>('#touch button').forEach(button => {
+
+  // The skill cluster works with touch and with the mouse.
+  document.querySelectorAll<HTMLButtonElement>('#skills button').forEach(button => {
     const action = button.dataset.action
+    const source = 'button'
     button.addEventListener('pointerdown',e => {
       e.preventDefault()
-      touchMode = true
-      if (action === 'hold') channelTap = true
-      if (action === 'dash' || action === 'bolt' || action === 'pulse') taps[action] = true
+      if (e.pointerType !== 'mouse') touchMode = true
+      if (action === 'skill1' || action === 'ult') {
+        try { button.setPointerCapture(e.pointerId) } catch { /* synthetic pointer */ }
+        press(action,source)
+      }
+      if (action === 'basic' || action === 'skill2' || action === 'skill3') taps[action] = true
     })
+    const up = () => { if (action === 'skill1' || action === 'ult') release(action,source) }
+    button.addEventListener('pointerup',up)
+    button.addEventListener('lostpointercapture',up)
+    button.addEventListener('pointercancel',up)
   })
+
   return {
     reset,
     get locked() { return locked || touchMode },
-    get ultimate() { return ultimate },
     sample(s: Duel): Command {
       const [player,rival] = s.mages
       const point = !this.locked && mouse ? project(mouse.x,mouse.y) : undefined
@@ -88,30 +125,17 @@ export function input(canvas: HTMLCanvasElement, project: (x:number,y:number)=>P
       const ahead = Number(keys.has('KeyW'))-Number(keys.has('KeyS'))-stick.z
       const right = Number(keys.has('KeyD'))-Number(keys.has('KeyA'))+stick.x
       const move = { x:f.x*ahead-f.z*right, z:f.z*ahead+f.x*right }
-      // In a clash the channel holds itself and each Channel press is a pulse on the bright bar.
-      // Blink is the deliberate way out of a clash.
+      // In a clash the beam holds itself and each Skill 1 press is a pulse on the bright bar.
       const clashing = s.clash !== null
-      let pulse = false
-      if (channelTap) {
-        if (clashing) pulse = true
-        else if (ultimate) ultimate = false // release early: the rules fire the final burst
-        else {
-          ultimate = true
-          ultimateTicks = 0
-          ultimateStarted = false
-        }
+      const command: Command = {
+        move, aim,
+        skill1:clashing || held.skill1.size > 0,
+        basic:taps.basic, skill2:taps.skill2, skill3:taps.skill3,
+        ult:held.ult.size > 0,
+        pulse:taps.pulse || (clashing && skill1Press),
       }
-      channelTap = false
-      if (ultimate) {
-        ultimateTicks++
-        // The rules end a channel by exhaustion, interrupts, blinks or a finished clash; follow
-        // them. A press that never started (cooldown, low mana) is dropped after ~0.6 s.
-        if (player.charge > 0) ultimateStarted = true
-        else if (ultimateStarted || ultimateTicks > 36) ultimate = false
-      }
-      const command: Command = {move,aim,hold:clashing || ultimate,...taps}
-      if (pulse) command.pulse = true
       taps = {}
+      skill1Press = false
       return command
     },
   }

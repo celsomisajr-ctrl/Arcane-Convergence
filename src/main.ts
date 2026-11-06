@@ -1,8 +1,8 @@
 import './style.css'
 import { decide } from './ai'
 import { input } from './input'
-import { beats, ELEMENT_COUNT, pulsePhase, round, STEP, step } from './sim'
-import { MAGES } from './mages'
+import { beats, ELEMENT_COUNT, pulsePhase, round, STEP, step, ULT_MAX, type Mage } from './sim'
+import { MAGES, PLACEHOLDER_SKILLS } from './mages'
 import { view } from './view'
 
 const get = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T
@@ -55,7 +55,7 @@ MAGES.forEach((info,e) => {
   card.className = 'mage'
   card.setAttribute('role','radio')
   card.style.setProperty('--mage',info.css)
-  card.innerHTML = `<b>${info.name}</b><span class="el">${info.element}</span><span class="ult">${info.ultimate}</span>`
+  card.innerHTML = `<b>${info.name}</b><span class="el">${info.element}</span><span class="ult">Ultimate: ${info.ultName}</span><span class="ult">${info.beam}</span>`
     +`<span class="wheel">Beats ${names(others.filter(o => beats(e,o)))}<br>Weak to ${names(others.filter(o => beats(o,e)))}</span>`
   card.addEventListener('click',() => {
     pick = e
@@ -87,6 +87,22 @@ try {
 if (arena) run(arena)
 function run(arena: ReturnType<typeof view>) {
   const controls = input(canvas,arena.aim,arena.forward)
+  // Skill cluster: names, the Ultimate's refill ring and cooldown sweeps.
+  const skillsEl = get('skills')
+  const slot = (action: string) => skillsEl.querySelector<HTMLElement>(`[data-action="${action}"]`)!
+  ;(['skill1','skill2','skill3'] as const).forEach((a,k) => { slot(a).querySelector('.name')!.textContent = PLACEHOLDER_SKILLS[k] })
+  function updateSkills(m: Mage) {
+    const info = MAGES[m.element]
+    skillsEl.style.setProperty('--mage',info.css)
+    const ult = slot('ult')
+    ult.style.setProperty('--fill',String(m.ult/ULT_MAX))
+    ult.classList.toggle('ready',m.ult >= ULT_MAX && !m.ulting)
+    ult.classList.toggle('active',m.ulting)
+    ult.querySelector('.name')!.textContent = info.ultName
+    slot('basic').style.setProperty('--cd',String(m.quick/.55))
+    slot('skill2').style.setProperty('--cd',String(m.cooldown/1.25))
+    slot('skill1').classList.toggle('active',m.charge > 0)
+  }
   start.addEventListener('click',() => {
     void preferLandscape()
     if (matchEnded) {
@@ -156,8 +172,10 @@ function run(arena: ReturnType<typeof view>) {
     }
     const player = duel.mages[0]
     get('status').textContent = !playing ? '' : player.stun && player.mana === 0 ? 'EXHAUSTED'
-      : player.stun ? 'STAGGERED' : clash ? '' : player.root ? 'ROOTED' : controls.ultimate ? 'ULTIMATE · press Channel to release'
+      : player.stun ? 'STAGGERED' : clash ? '' : player.ulting ? MAGES[player.element].ultName.toUpperCase() : player.root ? 'ROOTED'
       : controls.locked ? 'LOCK-ON' : 'FREE AIM'
+    skillsEl.hidden = !playing
+    updateSkills(duel.mages[0])
     requestAnimationFrame(frame)
   }
   requestAnimationFrame(frame)

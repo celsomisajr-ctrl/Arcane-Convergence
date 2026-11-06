@@ -1,9 +1,27 @@
 export const STEP = 1 / 60
 export const LIMIT = 9
 export type Point = { x: number; z: number }
-export type Command = { move: Point; aim: Point; hold: boolean; bolt?: boolean; dash?: boolean; pulse?: boolean }
-export type Mage = { p: Point; aim: Point; hp: number; mana: number; charge: number; stun: number; dash: number; cooldown: number; element: number; slow: number; quick: number; velocity: Point; spent: boolean; poison: number; root: number; rootCd: number }
-type Bolt = { p: Point; v: Point; owner: number; element: number; power: number; life: number }
+/** One player's input for one tick. Slots follow the on-screen buttons. Skill slots 1–3 are
+ *  placeholders until the PO assigns each mage's real skills: 1 = element beam (held),
+ *  2 = Blink, 3 = locked. */
+export type Command = {
+  move: Point
+  aim: Point
+  /** Skill 1 held: the element beam. */
+  skill1: boolean
+  /** Basic attack pressed (replaces the old bolt). */
+  basic?: boolean
+  /** Skill 2 pressed: Blink (placeholder). */
+  skill2?: boolean
+  /** Skill 3 pressed: locked (placeholder, no effect). */
+  skill3?: boolean
+  /** Ultimate held. Starts only with a full ring, then drains it while held. */
+  ult?: boolean
+  /** Clash pulse on the bright bar. */
+  pulse?: boolean
+}
+export type Mage = { p: Point; aim: Point; hp: number; mana: number; charge: number; stun: number; dash: number; cooldown: number; element: number; slow: number; quick: number; velocity: Point; spent: boolean; poison: number; root: number; rootCd: number; ult: number; ulting: boolean; ultShot: number }
+type Bolt = { p: Point; v: Point; owner: number; element: number; power: number; life: number; kind: 'basic' | 'volley' }
 export const clamp = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x))
 export const delta = (a: Point, b: Point) => ({ x: b.x - a.x, z: b.z - a.z })
 export const length = (v: Point) => Math.hypot(v.x, v.z)
@@ -38,9 +56,30 @@ export const POISON_TIME = 2.5
 export const POISON_DPS = 3
 export const ROOT_TIME = .6
 export const ROOT_COOLDOWN = 3
+// Ultimate: its own ring, full before it can start; hold to pour it into a bullet-like rain.
+export const ULT_MAX = 100
+/** Ring refill per second on its own (a full ring in 30 s). */
+export const ULT_REGEN = ULT_MAX/30
+/** Ring drained per second while casting (a full ring lasts 2.5 s). */
+export const ULT_DRAIN = ULT_MAX/2.5
+export const ULT_SHOT_EVERY = .1
+export const ULT_SHOT_POWER = 2.5
+/** How fast Ultimate shots turn toward the target (rad/s). */
+export const ULT_SHOT_HOMING = .8
+/** Extra ring per point of damage dealt and taken, so fighting earns the Ultimate sooner. */
+export const ULT_FROM_DEALT = .5
+export const ULT_FROM_TAKEN = .3
+/** One shot of the Ultimate rain, aimed at the enemy with a small deterministic spread. */
+function volley(s: Duel, i: number) {
+  const m = s.mages[i]
+  const dir = unit(delta(m.p,s.mages[1-i].p))
+  const a = Math.sin(s.time*53.7+i*2.1)*.07
+  const v = { x:dir.x*Math.cos(a)-dir.z*Math.sin(a), z:dir.x*Math.sin(a)+dir.z*Math.cos(a) }
+  s.bolts.push({ p:{...m.p}, v, owner:i, element:m.element, power:ULT_SHOT_POWER, life:1, kind:'volley' })
+}
 const validElement = (e: number) => Number.isInteger(e) && e >= 0 && e < ELEMENT_COUNT ? e : FIRE
 function mage(z: number, element: number): Mage {
-  return { p: {x:0,z}, aim: {x:0,z:-Math.sign(z)}, hp:100, mana:100, charge:0, stun:0, dash:0, cooldown:0, element:validElement(element), slow:0, quick:0, velocity:{x:0,z:0}, spent:false, poison:0, root:0, rootCd:0 }
+  return { p: {x:0,z}, aim: {x:0,z:-Math.sign(z)}, hp:100, mana:100, charge:0, stun:0, dash:0, cooldown:0, element:validElement(element), slow:0, quick:0, velocity:{x:0,z:0}, spent:false, poison:0, root:0, rootCd:0, ult:0, ulting:false, ultShot:0 }
 }
 /** A fresh round. `elements` are the two players' mage elements (player 0 starts at z = 5). */
 export function round(elements: readonly [number, number] = [FIRE, FIRE]) {
@@ -54,7 +93,7 @@ function shift(m: Mage, v: Point, distance: number) {
 }
 function fire(s: Duel, i: number, power: number) {
   const m = s.mages[i]
-  s.bolts.push({ p:{...m.p}, v:{...m.aim}, owner:i, element:m.element, power, life:1 })
+  s.bolts.push({ p:{...m.p}, v:{...m.aim}, owner:i, element:m.element, power, life:1, kind:'basic' })
 }
 /** Mana needed to begin a channel. A channel already running drains until empty. */
 export const CHANNEL_MIN_MANA = 12
@@ -94,6 +133,7 @@ export function step(s: Duel, commands: readonly Command[]) {
   if (s.mages.some(m => m.hp <= 0)) return
   s.time += STEP
   s.impact = Math.max(0, s.impact - STEP)
+  const hpBefore = s.mages.map(m => m.hp)
   for (const [i,m] of s.mages.entries()) {
     const c = commands[i]
     m.stun = Math.max(0,m.stun-STEP)
@@ -110,10 +150,14 @@ export function step(s: Duel, commands: readonly Command[]) {
     if (length(c.aim) > 0 && !s.clash) {
       m.aim = m.charge > BEAM_ACTIVE ? turnToward(m.aim,unit(c.aim),CHANNEL_TURN_RATE*STEP) : unit(c.aim)
     }
-    if (!c.hold) m.spent = false
-    if (m.stun) continue
+    if (!c.skill1) m.spent = false
+    if (!m.ulting) m.ult = Math.min(ULT_MAX,m.ult+ULT_REGEN*STEP)
+    if (m.stun) {
+      m.ulting = false
+      continue
+    }
     const movement = length(c.move) > 1 ? unit(c.move) : c.move
-    if (c.dash && !m.cooldown) {
+    if (c.skill2 && !m.cooldown && !m.ulting) {
       m.dash = .18
       m.cooldown = 1.25
       m.velocity = length(movement) > .1 ? unit(movement) : m.aim
@@ -123,13 +167,30 @@ export function step(s: Duel, commands: readonly Command[]) {
       shift(m,m.velocity,15*STEP)
       continue
     }
-    if (!s.clash && !m.root) shift(m,movement,STEP*(c.hold ? 1.2 : 5)*(m.slow ? .42 : 1))
-    if (c.bolt && !m.quick && m.mana >= 10 && !s.clash) {
+    // Ultimate: needs a full ring to start; while held it drains the ring and rains shots.
+    const wantsUlt = !!c.ult && !s.clash
+    if (m.ulting && (!wantsUlt || m.ult <= 0)) m.ulting = false
+    else if (!m.ulting && wantsUlt && m.ult >= ULT_MAX) {
+      m.ulting = true
       m.charge = 0
-      m.mana -= 10
+      m.ultShot = 0
+    }
+    if (m.ulting) {
+      m.ult = Math.max(0,m.ult-ULT_DRAIN*STEP)
+      m.ultShot -= STEP
+      if (m.ultShot <= 0) {
+        m.ultShot += ULT_SHOT_EVERY
+        volley(s,i)
+      }
+      continue // rooted and committed while casting
+    }
+    if (!s.clash && !m.root) shift(m,movement,STEP*(c.skill1 ? 1.2 : 5)*(m.slow ? .42 : 1))
+    if (c.basic && !m.quick && !s.clash) {
+      // Basic attack: no mana cost, short cooldown, still breaks a channel it hits.
+      m.charge = 0
       m.quick = .55
       fire(s,i,9)
-    } else if (c.hold && !m.quick && (m.charge > 0 || (m.mana >= CHANNEL_MIN_MANA && !m.spent))) {
+    } else if (c.skill1 && !m.quick && (m.charge > 0 || (m.mana >= CHANNEL_MIN_MANA && !m.spent))) {
       m.charge = Math.min(1.6,m.charge+STEP)
       m.mana = Math.max(0,m.mana-STEP*CHANNEL_COST[m.element]*(s.clash ? CLASH_DRAIN : 1))
       if (!m.mana) {
@@ -197,6 +258,11 @@ export function step(s: Duel, commands: readonly Command[]) {
     const travel = 24*STEP
     const along = clamp(dot(offset,bolt.v),0,travel)
     if (!target.dash && Math.hypot(offset.x-bolt.v.x*along,offset.z-bolt.v.z*along) < .65) {
+      if (bolt.kind === 'volley') {
+        target.hp = Math.max(0,target.hp-bolt.power)
+        s.impact = Math.max(s.impact,.06)
+        return false
+      }
       if (target.charge > .28 && target.element === FROST && dot(target.aim,bolt.v) < -.65 && bolt.life < 1) {
         bolt.owner = 1-bolt.owner
         bolt.v = {...target.aim}
@@ -213,9 +279,20 @@ export function step(s: Duel, commands: readonly Command[]) {
       s.clash = null
       return false
     }
+    // Ultimate shots curve gently toward their target: moving reduces the damage but can't
+    // dodge the whole rain.
+    if (bolt.kind === 'volley') bolt.v = turnToward(bolt.v,unit(offset),ULT_SHOT_HOMING*STEP)
     bolt.p.x += bolt.v.x*travel
     bolt.p.z += bolt.v.z*travel
     bolt.life -= STEP
     return bolt.life > 0 && Math.abs(bolt.p.x) < LIMIT+1 && Math.abs(bolt.p.z) < LIMIT+1
+  })
+  // Damage this tick feeds both Ultimate rings (not while a ring is being spent).
+  s.mages.forEach((m,i) => {
+    const taken = hpBefore[i]-m.hp
+    if (taken <= 0) return
+    const other = s.mages[1-i]
+    if (!m.ulting) m.ult = Math.min(ULT_MAX,m.ult+taken*ULT_FROM_TAKEN)
+    if (!other.ulting) other.ult = Math.min(ULT_MAX,other.ult+taken*ULT_FROM_DEALT)
   })
 }
