@@ -3,12 +3,13 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
-import { beamReaches, BEAM_ACTIVE, LIMIT, type Duel } from './sim'
+import { beamReaches, BEAM_ACTIVE, FIRE, FROST, GOLD, LIGHT, LIMIT, NATURE, type Duel } from './sim'
+import { MAGES } from './mages'
 import { beamMaterial, Particles, Ribbon, softDot } from './fx'
 
-export const colors = [0xff632d,0xffca57,0x72dfff]
-/** Element light colours, brighter than 1 so bloom picks them up: Fire, Gold Threads, Frost. */
-const tints = [new T.Color(2.4,.62,.12),new T.Color(2.3,1.45,.4),new T.Color(.5,1.55,2.5)]
+/** Mage light colours by element, brighter than 1 so bloom picks them up:
+ *  Red Fire, Yellow Gold Threads, Blue Frost, White Light, Green Nature. */
+const tints = [new T.Color(2.4,.62,.12),new T.Color(2.3,1.45,.4),new T.Color(.5,1.55,2.5),new T.Color(1.35,1.3,1.15),new T.Color(.5,2.1,.55)]
 const SPARK = new T.Color(2.6,2.1,1.5)
 const DUST = new T.Color(.16,.2,.32)
 const HAND_Y = 1.18
@@ -365,7 +366,7 @@ export function view(canvas: HTMLCanvasElement) {
         pendingTimer[i] = .3
       }
       actor.flash = Math.max(0,actor.flash-dt*5)
-      cloth.color.setHex(m.stun ? 0xc48b83 : color)
+      cloth.color.setHex(m.stun ? 0xc48b83 : MAGES[m.element]?.robe ?? color)
       cloth.emissive.setRGB(actor.flash,actor.flash*.8,actor.flash*.6)
       group.scale.setScalar(m.dash ? .2 : 1) // blink
       if (m.dash && Math.random() < .8) particles.burst(m.p.x,1,m.p.z,4,2.5,tints[2],.45,0)
@@ -396,7 +397,7 @@ export function view(canvas: HTMLCanvasElement) {
         r.set(pts,(.015+power*.03)*(k%3 ? .7 : 1.2),tint,camera.position,Math.min(1,m.charge*3)*(.5+.5*Math.sin(time*5+k)))
       }
       // Fire vortex: big flames whirl around a fire caster as the charge builds.
-      if (charging && m.element === 0 && power > .3) {
+      if (charging && m.element === FIRE && power > .3) {
         const n = Math.ceil(dt*70*budget*power)
         for (let k = 0; k < n; k++) {
           const ang = Math.random()*Math.PI*2
@@ -433,14 +434,16 @@ export function view(canvas: HTMLCanvasElement) {
       perpA.crossVectors(direction,axisY).normalize()
       perpB.crossVectors(perpA,direction).normalize()
 
-      const shieldUp = live && m.element === 2 && !clash
-      const torrent = live && !shieldUp && (m.element !== 1 || clash !== null)
-      const weave = live && m.element === 1
+      // Every mage casts by weaving threads in their colour; the skill's own effect layers on
+      // top: Fire's torrent, Light's piercing core, Frost's shield, Nature's leaves.
+      const shieldUp = live && m.element === FROST && !clash
+      const threadOnly = m.element === GOLD || m.element === NATURE
+      const torrent = live && !shieldUp && (!threadOnly || clash !== null)
+      const weave = live && !shieldUp
 
-      // Torrent: fire, frost in a clash, and the core of gold during a clash.
       outer.visible = core.visible = torrent
       if (torrent) {
-        const width = (m.element === 1 ? .07 : .12)+m.charge*.07
+        const width = (threadOnly ? .07 : m.element === LIGHT ? .09 : .12)+m.charge*.07
         for (const [mesh,scale,speed] of [[outer,2.6,7],[core,.9,13]] as const) {
           mesh.position.copy(start).addScaledVector(direction,length/2)
           mesh.quaternion.setFromUnitVectors(axisY,direction)
@@ -452,7 +455,7 @@ export function view(canvas: HTMLCanvasElement) {
           u.speed.value = -speed
           u.color.value.copy(tint).multiplyScalar(scale > 1 ? .22 : .6)
         }
-        if (m.element === 0) {
+        if (m.element === FIRE) {
           const n = Math.ceil(dt*90*budget*(.5+power))
           for (let k = 0; k < n; k++) {
             const t = Math.random()
@@ -465,7 +468,7 @@ export function view(canvas: HTMLCanvasElement) {
         }
       }
 
-      // Gold threads: twisting ribbons flowing toward the target.
+      // Threads: twisting ribbons flowing toward the target. Gold and Nature weave thicker.
       for (const [k,r] of threads.entries()) {
         r.mesh.visible = weave
         if (!weave) continue
@@ -477,12 +480,26 @@ export function view(canvas: HTMLCanvasElement) {
           pts[p].copy(start).addScaledVector(direction,u*length)
             .addScaledVector(perpA,Math.cos(ang)*rad).addScaledVector(perpB,Math.sin(ang)*rad)
         }
-        r.set(pts,.018+power*.014,tint,camera.position,.9)
+        r.set(pts,(threadOnly ? .018+power*.014 : .011+power*.008),tint,camera.position,threadOnly ? .9 : .65)
       }
       if (weave && Math.random() < dt*45*budget) {
+        // Glitter for Gold and Light, drifting leaves for Nature.
         const t = Math.random()
+        const leaf = m.element === NATURE
         particles.emit(start.x+direction.x*length*t,start.y+(Math.random()-.5)*.3,start.z+direction.z*length*t,
-          (Math.random()-.5)*.6,Math.random()*.5,(Math.random()-.5)*.6,SPARK,.6,.3)
+          (Math.random()-.5)*.6,leaf ? -.4 : Math.random()*.5,(Math.random()-.5)*.6,leaf ? tint : SPARK,leaf ? 1 : .6,leaf ? -.6 : .3)
+      }
+      // Nature's after-effects on this mage: poison bubbles and a root of vines at the feet.
+      if (m.poison > 0 && Math.random() < dt*14*budget) {
+        particles.emit(m.p.x+(Math.random()-.5)*.6,.4+Math.random()*1.2,m.p.z+(Math.random()-.5)*.6,0,.6,0,tints[NATURE],.8,.5)
+      }
+      if (m.root > 0) {
+        ring.material.color.copy(tints[NATURE])
+        ring.material.opacity = .9
+        if (Math.random() < dt*40*budget) {
+          const a = Math.random()*Math.PI*2
+          particles.emit(m.p.x+Math.cos(a)*.55,.05,m.p.z+Math.sin(a)*.55,0,1.2,0,tints[NATURE],.5,-1)
+        }
       }
 
       // Frost: a crystalline shard shield in front of the caster.
