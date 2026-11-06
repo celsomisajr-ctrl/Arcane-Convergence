@@ -1,8 +1,8 @@
 import './style.css'
 import { decide } from './ai'
 import { input } from './input'
-import { beats, ELEMENT_COUNT, pulsePhase, round, STEP, step, ULT_MAX, type Mage } from './sim'
-import { MAGES, PLACEHOLDER_SKILLS } from './mages'
+import { beats, CHANNEL_MIN_MANA, ELEMENT_COUNT, pulsePhase, round, STEP, step, ULT_MAX, type Mage } from './sim'
+import { MAGES } from './mages'
 import { view } from './view'
 
 const get = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T
@@ -28,9 +28,32 @@ async function preferLandscape() {
     // Not supported here (e.g. iPhone Safari): the rotate prompt covers it.
   }
 }
-const hp = [get<HTMLMeterElement>('hp0'),get<HTMLMeterElement>('hp1')]
-const mp = [get<HTMLMeterElement>('mp0'),get<HTMLMeterElement>('mp1')]
+const plates = [get('plate0'),get('plate1')]
+const heads = [...document.querySelectorAll<HTMLElement>('#heads .head')]
 const elements = [get('elem0'),get('elem1')]
+const announceEl = get('announce')
+const banner = get('banner')
+function announce(text: string) {
+  announceEl.textContent = text
+  announceEl.classList.remove('show')
+  void announceEl.offsetWidth // restart the animation
+  announceEl.classList.add('show')
+}
+let bannerTimer = 0
+function castBanner(i: number, m: Mage) {
+  const info = MAGES[m.element]
+  banner.hidden = false
+  banner.className = i ? 'rival' : ''
+  banner.style.setProperty('--mage',info.css)
+  banner.querySelector('use')!.setAttribute('href','#i-ult'+m.element)
+  banner.querySelector('small')!.textContent = (i ? 'RIVAL · ' : '')+info.name.toUpperCase()+' MAGE'
+  banner.querySelector('b')!.textContent = info.ultName.toUpperCase()
+  banner.style.animation = 'none'
+  void banner.offsetWidth
+  banner.style.animation = ''
+  clearTimeout(bannerTimer)
+  bannerTimer = setTimeout(() => { banner.hidden = true },1000)
+}
 let duel = round()
 let wins = 0
 let losses = 0
@@ -86,23 +109,66 @@ try {
 }
 if (arena) run(arena)
 function run(arena: ReturnType<typeof view>) {
-  const controls = input(canvas,arena.aim,arena.forward)
-  // Skill cluster: names, the Ultimate's refill ring and cooldown sweeps.
+  const controls = input(canvas,arena.aim)
+  // Skill cluster: icons, the Ultimate's refill ring, cooldown sweeps and numbers.
   const skillsEl = get('skills')
   const slot = (action: string) => skillsEl.querySelector<HTMLElement>(`[data-action="${action}"]`)!
-  ;(['skill1','skill2','skill3'] as const).forEach((a,k) => { slot(a).querySelector('.name')!.textContent = PLACEHOLDER_SKILLS[k] })
+  const wasReady: Record<string,boolean> = {}
+  function readyFlash(action: string, ready: boolean) {
+    if (ready && wasReady[action] === false) {
+      const b = slot(action)
+      b.classList.remove('flash')
+      void b.offsetWidth
+      b.classList.add('flash')
+    }
+    wasReady[action] = ready
+  }
+  const seconds = (t: number) => t <= 0 ? '' : t < 1 ? t.toFixed(1) : String(Math.ceil(t))
   function updateSkills(m: Mage) {
     const info = MAGES[m.element]
     skillsEl.style.setProperty('--mage',info.css)
     const ult = slot('ult')
-    ult.style.setProperty('--fill',String(m.ult/ULT_MAX))
-    ult.classList.toggle('ready',m.ult >= ULT_MAX && !m.ulting)
+    const full = m.ult >= ULT_MAX
+    ult.style.setProperty('--fill',String(m.weave ? 1 : m.ult/ULT_MAX))
+    ult.classList.toggle('ready',full && !m.ulting)
     ult.classList.toggle('active',m.ulting)
-    ult.querySelector('.name')!.textContent = info.ultName
-    slot('basic').style.setProperty('--cd',String(m.quick/.55))
-    slot('skill2').style.setProperty('--cd',String(m.cooldown/1.25))
-    slot('skill1').classList.toggle('active',m.charge > 0)
+    ult.querySelector('use')!.setAttribute('href','#i-ult'+m.element)
+    ult.setAttribute('aria-label','Ultimate: '+info.ultName)
+    ult.querySelector('.cd')!.textContent = m.ulting || full ? '' : Math.floor(m.ult)+'%'
+    readyFlash('ult',full)
+    const basic = slot('basic')
+    basic.style.setProperty('--cd',String(m.quick/.55))
+    const blink = slot('blink')
+    blink.style.setProperty('--cd',String(m.cooldown/1.25))
+    blink.querySelector('.cd')!.textContent = seconds(m.cooldown)
+    readyFlash('blink',!m.cooldown)
+    const s1 = slot('skill1')
+    s1.classList.toggle('active',m.charge > 0)
+    s1.classList.toggle('nomana',m.mana < CHANNEL_MIN_MANA && m.charge === 0)
   }
+  function updatePlates() {
+    duel.mages.forEach((m,i) => {
+      const info = MAGES[m.element]
+      plates[i].style.setProperty('--mage',info.css)
+      plates[i].querySelector('use')!.setAttribute('href','#i-ult'+m.element)
+      const [hpBar,mpBar] = plates[i].querySelectorAll<HTMLElement>('.hp,.mp')
+      hpBar.style.setProperty('--v',String(m.hp/100))
+      hpBar.style.setProperty('--t',String(m.hp/100))
+      mpBar.style.setProperty('--v',String(m.mana/100))
+      elements[i].textContent = info.name+' · '+info.element
+      const head = heads[i]
+      const at = arena.screen(m.p.x,2.25,m.p.z)
+      head.hidden = !playing || !at || m.dash > 0
+      if (at) {
+        head.style.left = at.x+'px'
+        head.style.top = at.y+'px'
+      }
+      head.querySelector('b')!.textContent = i ? 'Rival' : 'You'
+      head.querySelector<HTMLElement>('.hp i')!.style.setProperty('--v',String(m.hp/100))
+      head.querySelector<HTMLElement>('.mp i')!.style.setProperty('--v',String(m.mana/100))
+    })
+  }
+  let weaving = [false,false]
   start.addEventListener('click',() => {
     void preferLandscape()
     if (matchEnded) {
@@ -113,6 +179,8 @@ function run(arena: ReturnType<typeof view>) {
     accumulator = lockFreeze = impactFreeze = 0
     overlay.hidden = true
     playing = true
+    weaving = [false,false]
+    announce('ROUND '+(wins+losses+1))
     matchEnded = false
     controls.reset()
     start.blur()
@@ -134,7 +202,12 @@ function run(arena: ReturnType<typeof view>) {
         if (!wasClashing && duel.clash) {
           lockFreeze = .24
           accumulator = 0
+          announce('CLASH!')
         }
+        duel.mages.forEach((m,i) => {
+          if (m.weave && !weaving[i]) castBanner(i,m)
+          weaving[i] = m.weave !== null
+        })
         if (duel.impact > previousImpact && duel.impact >= .4) {
           impactFreeze = .09
           accumulator = 0
@@ -146,6 +219,7 @@ function run(arena: ReturnType<typeof view>) {
           else if (rival.hp) losses++
           matchEnded = wins === 2 || losses === 2
           const result = player.hp ? 'Round won.' : rival.hp ? 'Round lost.' : 'Round drawn.'
+          announce(player.hp ? 'VICTORY' : rival.hp ? 'DEFEAT' : 'DRAW')
           message.textContent = (matchEnded ? (wins === 2 ? 'Match won.' : 'Match lost.') : result)+' Score '+wins+'–'+losses+'.'
           start.textContent = matchEnded ? 'Rematch' : 'Next round'
           get('difficulty-label').hidden = !matchEnded
@@ -155,15 +229,15 @@ function run(arena: ReturnType<typeof view>) {
         }
       }
     }
-    arena.draw(duel,dt)
-    duel.mages.forEach((m,i) => {
-      hp[i].value = m.hp
-      mp[i].value = m.mana
-      elements[i].textContent = MAGES[m.element].name+' · '+MAGES[m.element].element
-    })
-    if (playing) get('round').textContent = 'ROUND '+(wins+losses+1)
-    get('wins').textContent = '◆'.repeat(wins)
-    get('losses').textContent = '◆'.repeat(losses)
+    arena.draw(duel,dt,playing ? controls.aiming(duel) : null)
+    updatePlates()
+    if (playing) {
+      get('round').textContent = 'ROUND '+(wins+losses+1)
+      const t = Math.floor(duel.time)
+      get('timer').textContent = Math.floor(t/60)+':'+String(t%60).padStart(2,'0')
+    }
+    get('wins').textContent = '●'.repeat(wins)+'○'.repeat(2-wins)
+    get('losses').textContent = '●'.repeat(losses)+'○'.repeat(2-losses)
     const clash = duel.clash
     get('clash').hidden = !playing || !clash
     if (clash) {
@@ -172,8 +246,8 @@ function run(arena: ReturnType<typeof view>) {
     }
     const player = duel.mages[0]
     get('status').textContent = !playing ? '' : player.stun && player.mana === 0 ? 'EXHAUSTED'
-      : player.stun ? 'STAGGERED' : clash ? '' : player.ulting ? MAGES[player.element].ultName.toUpperCase() : player.root ? 'ROOTED'
-      : controls.locked ? 'LOCK-ON' : 'FREE AIM'
+      : player.stun ? 'STAGGERED' : clash ? '' : player.weave?.phase === 'channel' ? (controls.touch ? 'STICK STEERS · TAP ULTIMATE TO RELEASE' : 'WASD STEERS · R TO RELEASE')
+      : player.root ? 'ROOTED' : ''
     skillsEl.hidden = !playing
     updateSkills(duel.mages[0])
     requestAnimationFrame(frame)

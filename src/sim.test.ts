@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { beats, delta, ELEMENT_COUNT, FIRE, FROST, GOLD, LIGHT, NATURE, POISON_DPS, pulsePhase, round, step, STEP, unit, type Command, type Duel } from './sim'
+import { beats, delta, ELEMENT_COUNT, FIRE, FROST, GATHER_TIME, GOLD, LIGHT, NATURE, POISON_DPS, pulsePhase, RELEASE_TIME, round, step, STEP, ULT_RANGE, unit, WEAVE_TIME, type Command, type Duel } from './sim'
 import { decide } from './ai'
 
 const still = (aim = { x:0, z:0 }): Command => ({ move:{x:0,z:0}, aim, skill1:false })
@@ -229,33 +229,90 @@ describe('Basic attack and Ultimate ring', () => {
     for (let i = 0; i < seconds(1); i++) step(s,[still(), still()])
     expect(s.mages[0].ult).toBe(100)
   })
-  it('holding a full Ultimate drains the ring and rains shots that hurt without stunning', () => {
+  it('the Weave gathers, channels waves into its circle, then releases a stunning burst', () => {
     const s = round()
     s.mages[0].ult = 100
     s.mages[1].ult = 0
-    let shots = 0
+    step(s,[{ ...still(at(s,0)), ult:true, ultTarget:s.mages[1].p }, still()])
+    expect(s.mages[0].weave?.phase).toBe('gather')
+    for (let i = 0; i < seconds(GATHER_TIME); i++) step(s,[still(), still()])
+    expect(s.mages[0].weave?.phase).toBe('channel')
     let stunned = false
-    for (let i = 0; i < seconds(3); i++) {
-      step(s,[{ ...still(at(s,0)), ult:true }, still()])
-      shots = Math.max(shots,s.bolts.filter(b => b.kind === 'volley').length)
-      if (s.mages[1].stun > 0) stunned = true
+    for (let i = 0; i < seconds(WEAVE_TIME+.2); i++) {
+      step(s,[still(), still()])
+      if (s.mages[1].stun > .3) stunned = true
     }
-    expect(s.mages[0].ulting).toBe(false) // spent after ~2.5 s
-    expect(s.mages[0].ult).toBeLessThan(10)
-    expect(s.mages[1].hp).toBeLessThan(80)
-    expect(stunned).toBe(false)
-    expect(shots).toBeGreaterThan(0)
+    expect(stunned).toBe(true) // the release
+    for (let i = 0; i < seconds(RELEASE_TIME+.1); i++) step(s,[still(), still()])
+    expect(s.mages[0].ulting).toBe(false)
+    expect(s.mages[0].ult).toBeLessThan(5)
+    expect(s.mages[1].hp).toBeLessThan(55) // ~11 waves + the burst + burn
   })
-  it('releasing early stops the Ultimate, and it needs a full ring again', () => {
+  it('the circle is clamped to range and misses a target outside it', () => {
+    const s = round([GOLD,GOLD])
+    s.mages[0].ult = 100
+    step(s,[{ ...still(), ult:true, ultTarget:{x:0,z:-30} }, still()])
+    const w = s.mages[0].weave!
+    expect(Math.hypot(w.target.x-s.mages[0].p.x,w.target.z-s.mages[0].p.z)).toBeLessThanOrEqual(ULT_RANGE+1e-9)
+    s.mages[1].p = { x:8, z:-5 }
+    for (let i = 0; i < seconds(GATHER_TIME+WEAVE_TIME+1); i++) step(s,[still(), still()])
+    expect(s.mages[1].hp).toBe(100)
+  })
+  it('the move stick steers the circle during the channel, and the caster stays rooted', () => {
     const s = round()
     s.mages[0].ult = 100
-    for (let i = 0; i < seconds(.5); i++) step(s,[{ ...still(at(s,0)), ult:true }, still()])
-    step(s,[still(), still()])
+    step(s,[{ ...still(), ult:true, ultTarget:{x:0,z:0} }, still()])
+    for (let i = 0; i < seconds(GATHER_TIME+.05); i++) step(s,[still(), still()])
+    const p = {...s.mages[0].p}
+    for (let i = 0; i < seconds(1); i++) step(s,[{ ...still(), move:{x:1,z:0} }, still()])
+    expect(s.mages[0].weave!.target.x).toBeGreaterThan(3)
+    expect(s.mages[0].p).toEqual(p)
+  })
+  it('a hit while gathering interrupts the Weave and refunds half the ring; the channel is committed', () => {
+    const s = round()
+    s.mages[0].ult = 100
+    step(s,[{ ...still(), ult:true }, still()])
+    step(s,[still(), { ...still(at(s,1)), basic:true }])
+    for (let i = 0; i < seconds(.5); i++) step(s,[still(), still()])
+    expect(s.mages[0].weave).toBeNull()
+    expect(s.mages[0].ult).toBeGreaterThanOrEqual(50)
+    expect(s.mages[0].ult).toBeLessThan(60)
+
+    const t = round()
+    t.mages[0].ult = 100
+    step(t,[{ ...still(), ult:true }, still()])
+    for (let i = 0; i < seconds(GATHER_TIME+.1); i++) step(t,[still(), still()])
+    step(t,[still(), { ...still(at(t,1)), basic:true }])
+    for (let i = 0; i < seconds(.5); i++) step(t,[still(), still()])
+    expect(t.mages[0].weave?.phase).toBe('channel')
+  })
+  it('pressing again during the channel releases early, and it needs a full ring again', () => {
+    const s = round()
+    s.mages[0].ult = 100
+    step(s,[{ ...still(), ult:true }, still()])
+    for (let i = 0; i < seconds(GATHER_TIME+.5); i++) step(s,[still(), still()])
+    step(s,[{ ...still(), ult:true }, still()])
+    expect(s.mages[0].weave?.phase).toBe('release')
+    for (let i = 0; i < seconds(RELEASE_TIME+.1); i++) step(s,[still(), still()])
     expect(s.mages[0].ulting).toBe(false)
-    const left = s.mages[0].ult
-    expect(left).toBeGreaterThan(0)
-    step(s,[{ ...still(at(s,0)), ult:true }, still()])
+    step(s,[{ ...still(), ult:true }, still()])
     expect(s.mages[0].ulting).toBe(false)
+  })
+  it('the rival casts its Weave on the player and steps out of the player\'s', () => {
+    const s = round([FIRE,FROST])
+    s.mages[1].ult = 100
+    let cast = false
+    for (let i = 0; i < seconds(1); i++) {
+      step(s,[still(), decide(s,1)])
+      if (s.mages[1].weave) cast = true
+    }
+    expect(cast).toBe(true)
+    const t = round([FIRE,FROST])
+    t.mages[0].ult = 100
+    t.mages[1].ult = 0
+    step(t,[{ ...still(), ult:true, ultTarget:t.mages[1].p }, decide(t,1)])
+    for (let i = 0; i < seconds(GATHER_TIME+WEAVE_TIME+1); i++) step(t,[still(), decide(t,1)])
+    expect(t.mages[1].hp).toBeGreaterThan(70) // it walked out instead of eating the whole Weave
   })
   it('dealing and taking damage fills both rings faster', () => {
     const s = round()
