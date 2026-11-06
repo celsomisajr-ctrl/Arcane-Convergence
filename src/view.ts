@@ -47,6 +47,7 @@ export function view(canvas: HTMLCanvasElement) {
   resize()
 
   // --- Room: cold blue-grey stone, lit mostly by the spells ---
+  const axisYUp = new T.Vector3(0,1,0)
   scene.add(new T.HemisphereLight(0x6d84c4,0x150f1c,1.05))
   const moon = new T.DirectionalLight(0xa9c1ff,1.1)
   moon.position.set(-4,8,-5)
@@ -74,6 +75,33 @@ export function view(canvas: HTMLCanvasElement) {
   for (let i=0;i<3;i++) box(5-i, .25,3-i*.5,0,.125+i*.25,-9.8)
   box(1.5,.8,.9,0,1.15,-10,trim)
   box(1.5,2,.28,0,1.9,-10.4,trim)
+  // Tall latticed windows on the back wall, throwing cold shafts of light into the hall.
+  const windowTex = latticeWindow()
+  const shaftTex = shaftGradient()
+  for (const x of [-5.5,5.5]) {
+    const pane = new T.Mesh(new T.PlaneGeometry(2.2,4),new T.MeshBasicMaterial({map:windowTex,color:new T.Color(.55,.72,1.15),toneMapped:false}))
+    pane.position.set(x,3.6,-10.78)
+    scene.add(pane)
+    box(2.6,.25,.5,x,1.5,-10.7,trim)
+    box(2.6,.25,.5,x,5.7,-10.7,trim)
+    // Two crossed additive planes read as a volume from any angle.
+    const top = new T.Vector3(x,3.6,-10.6)
+    const floorHit = new T.Vector3(x*.55,0,-4.2)
+    const mid = top.clone().add(floorHit).multiplyScalar(.5)
+    const len = top.distanceTo(floorHit)
+    for (const turn of [0,Math.PI/2]) {
+      const shaft = new T.Mesh(new T.PlaneGeometry(2,len),new T.MeshBasicMaterial({map:shaftTex,color:new T.Color(.22,.3,.5),
+        transparent:true,blending:T.AdditiveBlending,depthWrite:false,side:T.DoubleSide,toneMapped:false}))
+      shaft.position.copy(mid)
+      shaft.quaternion.setFromUnitVectors(axisYUp,floorHit.clone().sub(top).normalize().negate())
+      shaft.rotateY(turn)
+      scene.add(shaft)
+    }
+    const spot = new T.SpotLight(0x8fb0ff,18,18,.5,.6,1.2)
+    spot.position.copy(top)
+    spot.target.position.copy(floorHit)
+    scene.add(spot,spot.target)
+  }
   // A cold glow behind the throne to silhouette it.
   const backGlow = new T.PointLight(0x4a6cff,7,14,1.6)
   backGlow.position.set(0,3.2,-10.2)
@@ -83,6 +111,60 @@ export function view(canvas: HTMLCanvasElement) {
   const dot = softDot()
   const particles = new Particles(Math.round(2600*budget),.16,dot)
   scene.add(particles.points)
+  // Big soft flame sprites for the fire vortex and explosions.
+  const flames = new Particles(Math.round(900*budget),.85,dot)
+  scene.add(flames.points)
+  // Stone chunks thrown by big impacts.
+  const rubbleMat = new T.MeshStandardMaterial({color:0x3a4052,roughness:1,flatShading:true})
+  const rubbleGeo = new T.DodecahedronGeometry(1,0)
+  const rubble = Array.from({length:mobile || lowfx ? 12 : 28},() => {
+    const mesh = new T.Mesh(rubbleGeo,rubbleMat)
+    mesh.visible = false
+    scene.add(mesh)
+    return {mesh,v:new T.Vector3(),spin:new T.Vector3(),life:0,r:.1}
+  })
+  let nextRubble = 0
+  function debris(at: T.Vector3, n: number, force: number) {
+    for (let k = 0; k < n; k++) {
+      const d = rubble[nextRubble]
+      nextRubble = (nextRubble+1) % rubble.length
+      d.r = .06+Math.random()*.16
+      d.mesh.scale.setScalar(d.r)
+      d.mesh.position.copy(at)
+      const a = Math.random()*Math.PI*2
+      const s = force*(.4+Math.random()*.6)
+      d.v.set(Math.cos(a)*s,2+Math.random()*force*.8,Math.sin(a)*s)
+      d.spin.set(Math.random()*8,Math.random()*8,Math.random()*8)
+      d.life = 2.5+Math.random()
+      d.mesh.visible = true
+    }
+  }
+  function updateDebris(dt: number) {
+    for (const d of rubble) {
+      if (!d.mesh.visible) continue
+      d.life -= dt
+      d.v.y -= 14*dt
+      d.mesh.position.addScaledVector(d.v,dt)
+      if (d.mesh.position.y < d.r) {
+        d.mesh.position.y = d.r
+        d.v.y *= -.32
+        d.v.x *= .6
+        d.v.z *= .6
+        d.spin.multiplyScalar(.6)
+      }
+      d.mesh.rotation.x += d.spin.x*dt
+      d.mesh.rotation.y += d.spin.y*dt
+      d.mesh.rotation.z += d.spin.z*dt
+      if (d.life < .5) d.mesh.scale.setScalar(d.r*Math.max(0,d.life/.5))
+      if (d.life <= 0) d.mesh.visible = false
+    }
+  }
+  // Full-screen white-out for the biggest moments.
+  const flashEl = document.createElement('div')
+  flashEl.id = 'flash'
+  document.body.appendChild(flashEl)
+  let flash = 0
+  const flashTo = (v: number) => { flash = Math.max(flash,v) }
   const orb = new T.IcosahedronGeometry(1,1)
   const axisY = new T.Vector3(0,1,0)
   const unitCylinder = new T.CylinderGeometry(1,1,1,14,1,true)
@@ -108,7 +190,7 @@ export function view(canvas: HTMLCanvasElement) {
     const outer = new T.Mesh(unitCylinder,outerMat)
     const core = new T.Mesh(unitCylinder,coreMat)
     const threads = Array.from({length:5},() => new Ribbon(RIBBON_SEGMENTS))
-    const aura = Array.from({length:mobile || lowfx ? 3 : 5},() => new Ribbon(RIBBON_SEGMENTS))
+    const aura = Array.from({length:mobile || lowfx ? 4 : 9},() => new Ribbon(RIBBON_SEGMENTS))
     const shield = new T.Group()
     const shardMat = new T.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:.35,
       blending:T.AdditiveBlending,depthWrite:false,toneMapped:false,side:T.DoubleSide})
@@ -125,8 +207,11 @@ export function view(canvas: HTMLCanvasElement) {
       shield.add(shard)
     }
     const light = new T.PointLight(0xffffff,0,14,1.4)
-    scene.add(group,outer,core,shield,light,...threads.map(t => t.mesh),...aura.map(t => t.mesh))
-    return {group,hand,ring,outer,core,threads,aura,shield,shardMat,edgeMat,light,cloth,color,flash:0}
+    const star = new T.Sprite(new T.SpriteMaterial({map:dot,color:0xffffff,blending:T.AdditiveBlending,
+      depthWrite:false,transparent:true,toneMapped:false}))
+    star.visible = false
+    scene.add(group,outer,core,shield,light,star,...threads.map(t => t.mesh),...aura.map(t => t.mesh))
+    return {group,hand,ring,outer,core,threads,aura,shield,shardMat,edgeMat,light,star,cloth,color,flash:0,cast:0,quick:0}
   })
 
   // Clash flare where the beams meet.
@@ -239,6 +324,9 @@ export function view(canvas: HTMLCanvasElement) {
       const loser = a.hp < prevHp[0] ? a : b
       particles.burst(loser.p.x,HAND_Y,loser.p.z,Math.round(160*budget),11,SPARK,.9)
       particles.burst(loser.p.x,HAND_Y,loser.p.z,Math.round(90*budget),7,tints[(loser === a ? b : a).element],1)
+      flames.burst(loser.p.x,HAND_Y,loser.p.z,Math.round(130*budget),6,tints[(loser === a ? b : a).element].clone().multiplyScalar(.8),1.1,1.5)
+      debris(new T.Vector3(loser.p.x,.4,loser.p.z),Math.round(14*(mobile || lowfx ? .5 : 1)),5)
+      flashTo(.85)
     }
     wasClash = clash !== null
 
@@ -256,6 +344,11 @@ export function view(canvas: HTMLCanvasElement) {
       if (lost > 0) {
         actor.flash = Math.min(1,actor.flash+(lost >= 5 ? 1 : lost*.25))
         pendingDamage[i] += lost
+        if (m.hp <= 0) {
+          flashTo(1)
+          debris(new T.Vector3(m.p.x,.5,m.p.z),Math.round(18*(mobile || lowfx ? .5 : 1)),6)
+          flames.burst(m.p.x,HAND_Y,m.p.z,Math.round(150*budget),7,tints[other.element].clone().multiplyScalar(.85),1.3,1.5)
+        } else if (lost >= 20) flashTo(.45)
         if (lost >= 5) {
           floater(m.p.x,m.p.z,String(Math.round(lost)),lost >= 20 ? 'big' : '')
           pendingDamage[i] -= lost
@@ -296,11 +389,32 @@ export function view(canvas: HTMLCanvasElement) {
         const phase = k/aura.length*Math.PI*2
         for (let p = 0; p < pts.length; p++) {
           const u = p/(pts.length-1)
-          const ang = phase+time*(3+k*.4)+u*5.5
-          const rad = (.35+u*.75)*(.55+power*.7)
+          const ang = phase+time*(3+(k%4)*.5)*(k%2 ? 1 : -1)+u*(4.5+(k%3))
+          const rad = (.3+u*.75)*(.55+power*.7)*(.65+(k%3)*.25)
           pts[p].set(m.p.x+Math.cos(ang)*rad,.25+u*2.1+Math.sin(time*2+k)*.08,m.p.z+Math.sin(ang)*rad)
         }
-        r.set(pts,.025+power*.035,tint,camera.position,Math.min(1,m.charge*3)*(.55+.45*Math.sin(time*5+k)))
+        r.set(pts,(.015+power*.03)*(k%3 ? .7 : 1.2),tint,camera.position,Math.min(1,m.charge*3)*(.5+.5*Math.sin(time*5+k)))
+      }
+      // Fire vortex: big flames whirl around a fire caster as the charge builds.
+      if (charging && m.element === 0 && power > .3) {
+        const n = Math.ceil(dt*70*budget*power)
+        for (let k = 0; k < n; k++) {
+          const ang = Math.random()*Math.PI*2
+          const rad = .75+Math.random()*.45
+          const swirl = 2.5+power*3
+          flames.emit(m.p.x+Math.cos(ang)*rad,.15+Math.random()*1.7,m.p.z+Math.sin(ang)*rad,
+            -Math.sin(ang)*swirl,.6+Math.random(),Math.cos(ang)*swirl,tint.clone().multiplyScalar(.28+power*.12),.55,2)
+        }
+      }
+      // Cast star: a bright flare at the hand when a bolt leaves it.
+      if (m.quick > actor.quick+.3) actor.cast = 1
+      actor.quick = m.quick
+      actor.cast = Math.max(0,actor.cast-dt*5)
+      actor.star.visible = actor.cast > 0
+      if (actor.cast > 0) {
+        actor.star.position.copy(handWorld)
+        actor.star.material.color.copy(tint).multiplyScalar(actor.cast)
+        actor.star.scale.setScalar(.4+(1-actor.cast)*1.6)
       }
       if (charging && Math.random() < dt*30*budget) {
         particles.emit(handWorld.x,handWorld.y,handWorld.z,(Math.random()-.5)*1.5,Math.random()*1.4,(Math.random()-.5)*1.5,tint,.7,.8)
@@ -413,6 +527,10 @@ export function view(canvas: HTMLCanvasElement) {
     }
 
     particles.update(dt)
+    flames.update(dt)
+    updateDebris(dt)
+    flash = Math.max(0,flash-dt*1.3)
+    flashEl.style.opacity = String(flash)
     bloom.strength = .65+(clash ? .1 : 0)+.2*Math.max(a.charge,b.charge)/1.6
     if (lowfx) renderer.render(scene,camera)
     else composer.render()
@@ -428,6 +546,48 @@ export function view(canvas: HTMLCanvasElement) {
       return raycaster.ray.intersectPlane(plane,hit) ? {x:hit.x,z:hit.z} : undefined
     },
   }
+}
+
+/** Pale window with a dark carved lattice, drawn procedurally. */
+function latticeWindow(): T.Texture {
+  const c = document.createElement('canvas')
+  c.width = 128
+  c.height = 232
+  const g = c.getContext('2d')!
+  const grad = g.createLinearGradient(0,0,0,232)
+  grad.addColorStop(0,'#dfe9ff')
+  grad.addColorStop(1,'#7f95c4')
+  g.fillStyle = grad
+  g.fillRect(0,0,128,232)
+  g.strokeStyle = '#1a1f2e'
+  g.lineWidth = 5
+  for (let i = -232; i < 360; i += 22) {
+    g.beginPath(); g.moveTo(i,0); g.lineTo(i+232,232); g.stroke()
+    g.beginPath(); g.moveTo(i+232,0); g.lineTo(i,232); g.stroke()
+  }
+  g.lineWidth = 12
+  g.strokeRect(0,0,128,232)
+  const tex = new T.CanvasTexture(c)
+  tex.colorSpace = T.SRGBColorSpace
+  return tex
+}
+
+/** Soft vertical fade for light shafts: bright near the window, gone at the floor and edges. */
+function shaftGradient(): T.Texture {
+  const c = document.createElement('canvas')
+  c.width = 64
+  c.height = 128
+  const g = c.getContext('2d')!
+  for (let y = 0; y < 128; y++) {
+    const along = Math.pow(1-y/127,1.5) // canvas top = window end of the shaft
+    for (let x = 0; x < 64; x++) {
+      const across = Math.sin(Math.PI*x/63)
+      const v = Math.round(255*along*across*across)
+      g.fillStyle = `rgb(${v},${v},${v})`
+      g.fillRect(x,y,1,1)
+    }
+  }
+  return new T.CanvasTexture(c)
 }
 
 /** Procedural cold flagstone floor, so the room needs no texture files. */
