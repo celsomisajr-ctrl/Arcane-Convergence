@@ -3,7 +3,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
-import { LIMIT, type Duel } from './sim'
+import { beamReaches, LIMIT, type Duel } from './sim'
 
 export const colors = [0xff632d,0xffca57,0x72dfff]
 export function view(canvas: HTMLCanvasElement) {
@@ -140,7 +140,7 @@ export function view(canvas: HTMLCanvasElement) {
       const dx = other.p.x-m.p.x
       const dz = other.p.z-m.p.z
       const gap = Math.hypot(dx,dz)
-      const reaches = gap < 18 && dx*m.aim.x+dz*m.aim.z > gap*.985
+      const reaches = beamReaches(m,other)
       const range = reaches ? Math.max(.1,gap-.8) : LIMIT*2
       const end = clash ? spark.position : target.set(
         T.MathUtils.clamp(m.p.x+m.aim.x*range,-10,10),1.18,
