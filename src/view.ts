@@ -3,22 +3,33 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
-import { beamReaches, LIMIT, type Duel } from './sim'
+import { beamReaches, BEAM_ACTIVE, LIMIT, type Duel } from './sim'
+import { beamMaterial, Particles, Ribbon, softDot } from './fx'
 
 export const colors = [0xff632d,0xffca57,0x72dfff]
+/** Element light colours, brighter than 1 so bloom picks them up: Fire, Gold Threads, Frost. */
+const tints = [new T.Color(2.4,.62,.12),new T.Color(2.3,1.45,.4),new T.Color(.5,1.55,2.5)]
+const SPARK = new T.Color(2.6,2.1,1.5)
+const DUST = new T.Color(.16,.2,.32)
+const HAND_Y = 1.18
+
 export function view(canvas: HTMLCanvasElement) {
-  const renderer = new T.WebGLRenderer({canvas,antialias:true})
+  const mobile = matchMedia('(pointer: coarse)').matches
+  // ?lowfx=1 skips bloom and trims effects (for slow phones).
+  const lowfx = new URLSearchParams(location.search).has('lowfx')
+  const budget = mobile || lowfx ? .45 : 1
+  const RIBBON_SEGMENTS = mobile || lowfx ? 18 : 30
+
+  const renderer = new T.WebGLRenderer({canvas,antialias:!mobile})
   const scene = new T.Scene()
-  scene.background = new T.Color(0x101321)
-  scene.fog = new T.FogExp2(0x101321,.033)
+  scene.background = new T.Color(0x070a12)
+  scene.fog = new T.FogExp2(0x070a12,.042)
   const camera = new T.PerspectiveCamera(56,1,.1,75)
   const composer = new EffectComposer(renderer)
   composer.addPass(new RenderPass(scene,camera))
-  composer.addPass(new UnrealBloomPass(new T.Vector2(),.68,.45,.55))
+  const bloom = new UnrealBloomPass(new T.Vector2(),.75,.5,.62)
+  composer.addPass(bloom)
   composer.addPass(new OutputPass())
-  const mobile = matchMedia('(pointer: coarse)').matches
-  // ?lowfx=1 skips bloom (for slow phones).
-  const lowfx = new URLSearchParams(location.search).has('lowfx')
   /** Smoothed ground direction the camera faces outside a clash. */
   const camDir = { x:0, z:-1 }
   function resize() {
@@ -34,22 +45,22 @@ export function view(canvas: HTMLCanvasElement) {
   }
   addEventListener('resize',resize)
   resize()
-  scene.add(new T.HemisphereLight(0x98baff,0x30243d,2))
-  const moon = new T.DirectionalLight(0xc9dbff,2)
+
+  // --- Room: cold blue-grey stone, lit mostly by the spells ---
+  scene.add(new T.HemisphereLight(0x6d84c4,0x150f1c,1.05))
+  const moon = new T.DirectionalLight(0xa9c1ff,1.1)
   moon.position.set(-4,8,-5)
   scene.add(moon)
-  const stone = new T.MeshStandardMaterial({color:0x303548,roughness:.95})
-  const trim = new T.MeshStandardMaterial({color:0x545b72})
+  const stone = new T.MeshStandardMaterial({color:0x2a3042,roughness:.95})
+  const trim = new T.MeshStandardMaterial({color:0x444c63,roughness:.85})
   function box(w:number,h:number,d:number,x:number,y:number,z:number,material=stone) {
     const mesh = new T.Mesh(new T.BoxGeometry(w,h,d),material)
     mesh.position.set(x,y,z)
     scene.add(mesh)
     return mesh
   }
-  box(20,.5,20,0,-.25,0)
-  const grid = new T.GridHelper(20,20,0x51586d,0x3e4458)
-  grid.position.y = .01
-  scene.add(grid)
+  const floor = box(20,.5,20,0,-.25,0,new T.MeshStandardMaterial({map:flagstones(),roughness:.9,metalness:.05}))
+  floor.receiveShadow = false
   for (const x of [-10,10]) {
     box(.25,.45,20,x,.22,0,trim)
     for (const z of [-9,-3,3,9]) {
@@ -63,45 +74,117 @@ export function view(canvas: HTMLCanvasElement) {
   for (let i=0;i<3;i++) box(5-i, .25,3-i*.5,0,.125+i*.25,-9.8)
   box(1.5,.8,.9,0,1.15,-10,trim)
   box(1.5,2,.28,0,1.9,-10.4,trim)
+  // A cold glow behind the throne to silhouette it.
+  const backGlow = new T.PointLight(0x4a6cff,7,14,1.6)
+  backGlow.position.set(0,3.2,-10.2)
+  scene.add(backGlow)
+
+  // --- Shared effects ---
+  const dot = softDot()
+  const particles = new Particles(Math.round(2600*budget),.16,dot)
+  scene.add(particles.points)
   const orb = new T.IcosahedronGeometry(1,1)
   const axisY = new T.Vector3(0,1,0)
-  function glow() {
-    return new T.MeshBasicMaterial({color:0xffffff})
-  }
+  const unitCylinder = new T.CylinderGeometry(1,1,1,14,1,true)
+
   const actors = [0x637d99,0x8d5968].map(color => {
     const group = new T.Group()
-    const cloth = new T.MeshStandardMaterial({color})
+    const cloth = new T.MeshStandardMaterial({color,roughness:.8})
     const body = new T.Mesh(new T.CapsuleGeometry(.39,.85,4,10),cloth)
     body.position.y = .86
     const hood = new T.Mesh(orb,cloth)
     hood.scale.set(.32,.34,.32)
     hood.position.y = 1.62
-    const hand = new T.Mesh(orb,glow())
-    hand.position.set(0,1.18,.51)
-    const ring = new T.Mesh(new T.RingGeometry(.56,.61,32),glow())
+    const hand = new T.Mesh(orb,new T.MeshBasicMaterial({color:0xffffff,toneMapped:false}))
+    hand.position.set(0,HAND_Y,.51)
+    const ring = new T.Mesh(new T.RingGeometry(.56,.62,40),
+      new T.MeshBasicMaterial({color:0xffffff,transparent:true,toneMapped:false,depthWrite:false}))
     ring.rotation.x = -Math.PI/2
     ring.position.y = .03
     group.add(body,hood,hand,ring)
-    const beam = new T.Mesh(new T.CylinderGeometry(1,1,1,10),glow())
-    const light = new T.PointLight(0xffffff,0,8)
-    scene.add(group,beam,light)
-    return {group,hand,ring,beam,light,cloth,color}
+
+    const outerMat = beamMaterial()
+    const coreMat = beamMaterial()
+    const outer = new T.Mesh(unitCylinder,outerMat)
+    const core = new T.Mesh(unitCylinder,coreMat)
+    const threads = Array.from({length:5},() => new Ribbon(RIBBON_SEGMENTS))
+    const aura = Array.from({length:mobile || lowfx ? 3 : 5},() => new Ribbon(RIBBON_SEGMENTS))
+    const shield = new T.Group()
+    const shardMat = new T.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:.35,
+      blending:T.AdditiveBlending,depthWrite:false,toneMapped:false,side:T.DoubleSide})
+    const edgeMat = new T.LineBasicMaterial({color:0xffffff,transparent:true,blending:T.AdditiveBlending,toneMapped:false})
+    for (let k = 0; k < 7; k++) {
+      const g = new T.OctahedronGeometry(1,0)
+      const shard = new T.Mesh(g,shardMat)
+      shard.add(new T.LineSegments(new T.EdgesGeometry(g),edgeMat))
+      const a = k/7*Math.PI*2
+      const r = k === 0 ? 0 : .42
+      shard.position.set(Math.cos(a)*r,Math.sin(a)*r,0)
+      shard.scale.set(.17,k === 0 ? .42 : .3,.06)
+      shard.rotation.z = a
+      shield.add(shard)
+    }
+    const light = new T.PointLight(0xffffff,0,14,1.4)
+    scene.add(group,outer,core,shield,light,...threads.map(t => t.mesh),...aura.map(t => t.mesh))
+    return {group,hand,ring,outer,core,threads,aura,shield,shardMat,edgeMat,light,cloth,color,flash:0}
   })
-  const spark = new T.Mesh(orb,glow())
-  scene.add(spark)
+
+  // Clash flare where the beams meet.
+  const flare = new T.Sprite(new T.SpriteMaterial({map:dot,color:0xffffff,blending:T.AdditiveBlending,
+    depthWrite:false,transparent:true,toneMapped:false}))
+  const clashLight = new T.PointLight(0xffffff,0,16,1.3)
+  scene.add(flare,clashLight)
+
   const bolts = new T.Group()
   scene.add(bolts)
-  const boltMaterials = colors.map(color => new T.MeshBasicMaterial({color}))
+  const boltMaterials = tints.map(c => new T.MeshBasicMaterial({color:c.clone().multiplyScalar(1.4),toneMapped:false}))
   const pool: T.Mesh[] = []
+
+  // Damage numbers live in a DOM layer over the canvas.
+  const floaters = document.createElement('div')
+  floaters.id = 'floaters'
+  document.body.appendChild(floaters)
+
   const raycaster = new T.Raycaster()
-  const plane = new T.Plane(axisY,-1.18)
+  const plane = new T.Plane(axisY,-HAND_Y)
   const hit = new T.Vector3()
   const target = new T.Vector3()
   const eye = new T.Vector3()
   const direction = new T.Vector3()
+  const start = new T.Vector3()
+  const end = new T.Vector3()
+  const perpA = new T.Vector3()
+  const perpB = new T.Vector3()
+  const pts = Array.from({length:RIBBON_SEGMENTS+1},() => new T.Vector3())
+  const blend = new T.Color()
+  let prevHp = [100,100]
+  let pendingDamage = [0,0]
+  let pendingTimer = [0,0]
+  let wasClash = false
+  let lastTime = -1
+  let clock = 0
+
+  function floater(x: number, z: number, text: string, kind: string) {
+    const v = new T.Vector3(x+(Math.random()-.5)*.6,2.3,z).project(camera)
+    if (v.z > 1) return
+    const el = document.createElement('div')
+    el.className = 'floater '+kind
+    el.textContent = text
+    const r = canvas.getBoundingClientRect()
+    el.style.left = (v.x*.5+.5)*r.width+'px'
+    el.style.top = (-v.y*.5+.5)*r.height+'px'
+    floaters.appendChild(el)
+    setTimeout(() => el.remove(),850)
+  }
+
   function draw(s: Duel, dt: number) {
+    clock += dt
+    const time = clock
     const [a,b] = s.mages
     const clash = s.clash
+    // A new round resets hp; don't treat that as healing or damage.
+    if (s.time < lastTime) prevHp = [100,100]
+    lastTime = s.time
     const centerX = (a.p.x+b.p.x)/2
     const centerZ = (a.p.z+b.p.z)/2
     const fx = b.p.x-a.p.x
@@ -123,50 +206,188 @@ export function view(canvas: HTMLCanvasElement) {
       eye.set(a.p.x-camDir.x*6.2-rx*.85,4.9,a.p.z-camDir.z*6.2-rz*.85)
       target.set(a.p.x+camDir.x*3.5,1.05,a.p.z+camDir.z*3.5)
     }
-    const shake = (s.impact*.65 + (clash ? .028 : 0))*Math.sin(performance.now()*.066)
+    const shake = (s.impact*.65 + (clash ? .028+clash.age*.006 : 0))*Math.sin(performance.now()*.066)
     eye.x += shake
+    eye.y += shake*.5
     camera.position.lerp(eye,1-Math.exp(-dt*9))
     camera.lookAt(target)
     camera.updateMatrixWorld()
-    spark.visible = Boolean(clash)
+
+    // --- Clash flare, sparks and resolution burst ---
+    const clashPoint = new T.Vector3()
     if (clash) {
-      spark.position.set(a.p.x+fx*clash.position,1.18,a.p.z+fz*clash.position)
-      spark.scale.setScalar(.27+.1*Math.sin(s.time*48))
-      spark.rotation.y += dt*6
+      clashPoint.set(a.p.x+fx*clash.position,HAND_Y,a.p.z+fz*clash.position)
+      blend.copy(tints[a.element]).lerp(tints[b.element],.5)
+      flare.visible = true
+      flare.position.copy(clashPoint)
+      flare.material.color.copy(blend).multiplyScalar(.55)
+      flare.scale.setScalar((.8+.3*Math.sin(time*31)+.15*Math.sin(time*13))*(1+Math.min(.6,clash.age*.1)))
+      clashLight.position.copy(clashPoint)
+      clashLight.color.copy(blend).multiplyScalar(.35)
+      clashLight.intensity = 9+4*Math.sin(time*41)
+      const n = Math.ceil(dt*140*budget)
+      for (let k = 0; k < n; k++) {
+        const c = Math.random() < .5 ? tints[a.element] : Math.random() < .5 ? tints[b.element] : SPARK
+        particles.emit(clashPoint.x,clashPoint.y,clashPoint.z,(Math.random()-.5)*9,Math.random()*5,(Math.random()-.5)*9,c,.55,-6)
+      }
+    } else {
+      flare.visible = false
+      clashLight.intensity = 0
     }
+    if (wasClash && !clash && s.impact >= .4) {
+      // Resolution: a big burst at the loser.
+      const loser = a.hp < prevHp[0] ? a : b
+      particles.burst(loser.p.x,HAND_Y,loser.p.z,Math.round(160*budget),11,SPARK,.9)
+      particles.burst(loser.p.x,HAND_Y,loser.p.z,Math.round(90*budget),7,tints[(loser === a ? b : a).element],1)
+    }
+    wasClash = clash !== null
+
+    // --- Mages, auras and beams ---
     for (const [i,m] of s.mages.entries()) {
-      const {group, hand, ring, beam, light, cloth,color} = actors[i]
-      const tint = colors[m.element]
+      const actor = actors[i]
+      const {group, hand, ring, outer, core, threads, aura, shield, light, cloth, color} = actor
+      const tint = tints[m.element]
+      const other = s.mages[1-i]
       group.position.set(m.p.x,0,m.p.z)
       group.rotation.y = Math.atan2(m.aim.x,m.aim.z)
+
+      // Hits: flash, sparks and damage numbers.
+      const lost = prevHp[i]-m.hp
+      if (lost > 0) {
+        actor.flash = Math.min(1,actor.flash+(lost >= 5 ? 1 : lost*.25))
+        pendingDamage[i] += lost
+        if (lost >= 5) {
+          floater(m.p.x,m.p.z,String(Math.round(lost)),lost >= 20 ? 'big' : '')
+          pendingDamage[i] -= lost
+          particles.burst(m.p.x,HAND_Y,m.p.z,Math.round(40*budget),6,SPARK,.6)
+        } else if (Math.random() < .5) {
+          particles.burst(m.p.x,HAND_Y,m.p.z,2,4,tints[other.element],.4)
+        }
+      }
+      prevHp[i] = m.hp
+      pendingTimer[i] -= dt
+      if (pendingTimer[i] <= 0 && pendingDamage[i] >= 1) {
+        floater(m.p.x,m.p.z,String(Math.round(pendingDamage[i])),'')
+        pendingDamage[i] = 0
+        pendingTimer[i] = .3
+      }
+      actor.flash = Math.max(0,actor.flash-dt*5)
       cloth.color.setHex(m.stun ? 0xc48b83 : color)
-      hand.material.color.setHex(tint).multiplyScalar(m.charge ? 2 : .8)
-      hand.scale.setScalar(.095+m.charge*.06)
-      ring.material.color.setHex(tint)
-      light.position.set(m.p.x,1.18,m.p.z)
-      light.color.setHex(tint)
-      light.intensity = m.charge*11
-      beam.visible = m.charge > .28
-      if (!beam.visible) continue
-      const start = new T.Vector3(m.p.x+m.aim.x*.51,1.18,m.p.z+m.aim.z*.51)
-      const other = s.mages[1-i]
-      const dx = other.p.x-m.p.x
-      const dz = other.p.z-m.p.z
-      const gap = Math.hypot(dx,dz)
-      const reaches = beamReaches(m,other)
-      const range = reaches ? Math.max(.1,gap-.8) : LIMIT*2
-      const end = clash ? spark.position : target.set(
-        T.MathUtils.clamp(m.p.x+m.aim.x*range,-10,10),1.18,
-        T.MathUtils.clamp(m.p.z+m.aim.z*range,-10,10),
-      )
-      if (m.element === 2 && !clash) end.copy(start).addScaledVector(direction.set(m.aim.x,0,m.aim.z),.24)
+      cloth.emissive.setRGB(actor.flash,actor.flash*.8,actor.flash*.6)
+      group.scale.setScalar(m.dash ? .2 : 1) // blink
+      if (m.dash && Math.random() < .8) particles.burst(m.p.x,1,m.p.z,4,2.5,tints[2],.45,0)
+
+      const charging = m.charge > 0
+      const power = Math.min(1,m.charge/1.6)
+      hand.material.color.copy(tint).multiplyScalar(charging ? 1+power : .45)
+      hand.scale.setScalar(.095+m.charge*.07+(charging ? .02*Math.sin(time*40) : 0))
+      ring.material.color.copy(tint)
+      ring.material.opacity = charging ? .45+.4*Math.sin(time*11) : .35
+      ring.scale.setScalar(1+(charging ? power*.7 : 0))
+      const handWorld = hand.getWorldPosition(new T.Vector3())
+      light.position.copy(handWorld)
+      light.color.copy(tint).multiplyScalar(.45)
+      light.intensity += ((charging ? 6+power*26 : 0)*(.85+.15*Math.sin(time*37+i))-light.intensity)*Math.min(1,dt*12)
+
+      // Channel aura: streams of light spiralling up around the caster.
+      for (const [k,r] of aura.entries()) {
+        r.mesh.visible = charging
+        if (!charging) continue
+        const phase = k/aura.length*Math.PI*2
+        for (let p = 0; p < pts.length; p++) {
+          const u = p/(pts.length-1)
+          const ang = phase+time*(3+k*.4)+u*5.5
+          const rad = (.35+u*.75)*(.55+power*.7)
+          pts[p].set(m.p.x+Math.cos(ang)*rad,.25+u*2.1+Math.sin(time*2+k)*.08,m.p.z+Math.sin(ang)*rad)
+        }
+        r.set(pts,.025+power*.035,tint,camera.position,Math.min(1,m.charge*3)*(.55+.45*Math.sin(time*5+k)))
+      }
+      if (charging && Math.random() < dt*30*budget) {
+        particles.emit(handWorld.x,handWorld.y,handWorld.z,(Math.random()-.5)*1.5,Math.random()*1.4,(Math.random()-.5)*1.5,tint,.7,.8)
+      }
+
+      // Beam geometry, shared by every element.
+      const live = m.charge > BEAM_ACTIVE
+      start.set(m.p.x+m.aim.x*.51,HAND_Y,m.p.z+m.aim.z*.51)
+      const gap = Math.hypot(other.p.x-m.p.x,other.p.z-m.p.z)
+      const range = beamReaches(m,other) ? Math.max(.1,gap-.8) : LIMIT*2
+      if (clash) end.copy(clashPoint)
+      else end.set(T.MathUtils.clamp(m.p.x+m.aim.x*range,-10,10),HAND_Y,T.MathUtils.clamp(m.p.z+m.aim.z*range,-10,10))
       direction.subVectors(end,start)
-      beam.position.copy(start).addScaledVector(direction,.5)
-      const width = m.element === 2 && !clash ? .65 : (m.element === 1 ? .065 : .1)+m.charge*.06
-      beam.scale.set(width,Math.max(.01,direction.length()),width)
-      beam.quaternion.setFromUnitVectors(axisY,direction.normalize())
-      beam.material.color.setHex(tint).multiplyScalar(2)
+      const length = Math.max(.01,direction.length())
+      direction.normalize()
+      perpA.crossVectors(direction,axisY).normalize()
+      perpB.crossVectors(perpA,direction).normalize()
+
+      const shieldUp = live && m.element === 2 && !clash
+      const torrent = live && !shieldUp && (m.element !== 1 || clash !== null)
+      const weave = live && m.element === 1
+
+      // Torrent: fire, frost in a clash, and the core of gold during a clash.
+      outer.visible = core.visible = torrent
+      if (torrent) {
+        const width = (m.element === 1 ? .07 : .12)+m.charge*.07
+        for (const [mesh,scale,speed] of [[outer,2.6,7],[core,.9,13]] as const) {
+          mesh.position.copy(start).addScaledVector(direction,length/2)
+          mesh.quaternion.setFromUnitVectors(axisY,direction)
+          const flicker = 1+.12*Math.sin(time*53+scale)
+          mesh.scale.set(width*scale*flicker,length,width*scale*flicker)
+          const u = (mesh.material as T.ShaderMaterial).uniforms
+          u.time.value = time
+          u.power.value = power
+          u.speed.value = -speed
+          u.color.value.copy(tint).multiplyScalar(scale > 1 ? .22 : .6)
+        }
+        if (m.element === 0) {
+          const n = Math.ceil(dt*90*budget*(.5+power))
+          for (let k = 0; k < n; k++) {
+            const t = Math.random()
+            const spread = .15+power*.25
+            particles.emit(start.x+direction.x*length*t+(Math.random()-.5)*spread,start.y+(Math.random()-.5)*spread,
+              start.z+direction.z*length*t+(Math.random()-.5)*spread,
+              direction.x*4+(Math.random()-.5)*2,Math.random()*2.2,direction.z*4+(Math.random()-.5)*2,
+              Math.random() < .25 ? SPARK : tint,.5,1.5)
+          }
+        }
+      }
+
+      // Gold threads: twisting ribbons flowing toward the target.
+      for (const [k,r] of threads.entries()) {
+        r.mesh.visible = weave
+        if (!weave) continue
+        const phase = k/threads.length*Math.PI*2
+        for (let p = 0; p < pts.length; p++) {
+          const u = p/(pts.length-1)
+          const ang = phase+u*length*2.2-time*9
+          const rad = (.06+.16*Math.sin(Math.PI*u))*(.7+power*.6)
+          pts[p].copy(start).addScaledVector(direction,u*length)
+            .addScaledVector(perpA,Math.cos(ang)*rad).addScaledVector(perpB,Math.sin(ang)*rad)
+        }
+        r.set(pts,.018+power*.014,tint,camera.position,.9)
+      }
+      if (weave && Math.random() < dt*45*budget) {
+        const t = Math.random()
+        particles.emit(start.x+direction.x*length*t,start.y+(Math.random()-.5)*.3,start.z+direction.z*length*t,
+          (Math.random()-.5)*.6,Math.random()*.5,(Math.random()-.5)*.6,SPARK,.6,.3)
+      }
+
+      // Frost: a crystalline shard shield in front of the caster.
+      shield.visible = shieldUp
+      if (shieldUp) {
+        shield.position.copy(start).addScaledVector(direction,.25)
+        shield.lookAt(shield.position.clone().add(direction))
+        shield.rotateZ(time*.6)
+        shield.scale.setScalar(.8+power*.5)
+        actor.shardMat.color.copy(tint).multiplyScalar(.12+.05*Math.sin(time*7))
+        actor.edgeMat.color.copy(tint).multiplyScalar(.7)
+        if (Math.random() < dt*20*budget) {
+          particles.emit(shield.position.x+(Math.random()-.5)*.8,shield.position.y+(Math.random()-.5)*.8,
+            shield.position.z+(Math.random()-.5)*.8,0,-.2,0,tint,.8,-.5)
+        }
+      }
     }
+
+    // --- Bolts with trails ---
     s.bolts.forEach((bolt,i) => {
       const mesh = pool[i] ?? new T.Mesh(orb,boltMaterials[bolt.element])
       if (!pool[i]) {
@@ -175,10 +396,24 @@ export function view(canvas: HTMLCanvasElement) {
       }
       mesh.visible = true
       mesh.material = boltMaterials[bolt.element]
-      mesh.position.set(bolt.p.x,1.18,bolt.p.z)
-      mesh.scale.setScalar(.12+bolt.power*.006)
+      mesh.position.set(bolt.p.x,HAND_Y,bolt.p.z)
+      mesh.scale.setScalar(.12+bolt.power*.006+.02*Math.sin(time*50+i))
+      const n = Math.ceil(dt*120*budget)
+      for (let k = 0; k < n; k++) {
+        particles.emit(bolt.p.x+(Math.random()-.5)*.15,HAND_Y+(Math.random()-.5)*.15,bolt.p.z+(Math.random()-.5)*.15,
+          -bolt.v.x*2+(Math.random()-.5),(Math.random()-.5),-bolt.v.z*2+(Math.random()-.5),tints[bolt.element],.35,0)
+      }
     })
     for (let i=s.bolts.length;i<pool.length;i++) pool[i].visible = false
+
+    // Dust drifting through the cold air.
+    if (Math.random() < dt*12*budget) {
+      particles.emit((Math.random()-.5)*18,Math.random()*4,(Math.random()-.5)*18,
+        (Math.random()-.5)*.2,.05,(Math.random()-.5)*.2,DUST,5,0)
+    }
+
+    particles.update(dt)
+    bloom.strength = .65+(clash ? .1 : 0)+.2*Math.max(a.charge,b.charge)/1.6
     if (lowfx) renderer.render(scene,camera)
     else composer.render()
   }
@@ -193,4 +428,30 @@ export function view(canvas: HTMLCanvasElement) {
       return raycaster.ray.intersectPlane(plane,hit) ? {x:hit.x,z:hit.z} : undefined
     },
   }
+}
+
+/** Procedural cold flagstone floor, so the room needs no texture files. */
+function flagstones(): T.Texture {
+  const c = document.createElement('canvas')
+  c.width = c.height = 512
+  const g = c.getContext('2d')!
+  g.fillStyle = '#151924'
+  g.fillRect(0,0,512,512)
+  let seed = 7
+  const rand = () => (seed = (seed*16807) % 2147483647)/2147483647
+  for (let y = 0; y < 8; y++) {
+    const offset = y%2 ? 32 : 0
+    for (let x = -1; x < 8; x++) {
+      const v = 38+Math.floor(rand()*16)
+      g.fillStyle = `rgb(${v-4},${v},${v+12})`
+      g.fillRect(x*64+offset+2,y*64+2,60,60)
+      g.fillStyle = 'rgba(0,0,0,.18)'
+      g.fillRect(x*64+offset+2+rand()*40,y*64+2+rand()*40,6+rand()*14,2)
+    }
+  }
+  const tex = new T.CanvasTexture(c)
+  tex.wrapS = tex.wrapT = T.RepeatWrapping
+  tex.repeat.set(2.5,2.5)
+  tex.colorSpace = T.SRGBColorSpace
+  return tex
 }
