@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { delta, pulsePhase, round, step, STEP, unit, type Command, type Duel } from './sim'
-import { decide, counterOf } from './ai'
+import { beats, delta, ELEMENT_COUNT, FIRE, FROST, GOLD, LIGHT, NATURE, POISON_DPS, pulsePhase, round, step, STEP, unit, type Command, type Duel } from './sim'
+import { decide } from './ai'
 
 const still = (aim = { x:0, z:0 }): Command => ({ move:{x:0,z:0}, aim, hold:false })
 const at = (s: Duel, i: number) => unit(delta(s.mages[i].p,s.mages[1-i].p))
@@ -41,7 +41,7 @@ function clash(difficulty: number, pulsing = true) {
   const s = round()
   s.mages[1].element = 0
   for (let i = 0; i < seconds(30); i++) {
-    const ai = { ...decide(s,difficulty), hold:true, element:0 }
+    const ai = { ...decide(s,difficulty), hold:true }
     const pulse = pulsing && s.clash !== null && pulsePhase(s.clash.age) > .5 && pulsePhase(s.clash.age) < .52
     const hp = [s.mages[0].hp,s.mages[1].hp]
     step(s,[{ ...still(at(s,0)), hold:true, pulse }, ai])
@@ -133,18 +133,78 @@ describe('rival interrupts', () => {
   })
 })
 
-describe('element choice', () => {
-  it('Archmage counter-picks a channeling player', () => {
-    for (const e of [0,1,2]) {
-      const s = round()
-      s.mages[0].element = e
-      s.mages[0].charge = .5
-      expect(decide(s,2).element).toBe(counterOf(e))
+describe('five mages', () => {
+  it('each element beats exactly two and loses to exactly two', () => {
+    for (let a = 0; a < ELEMENT_COUNT; a++) {
+      let wins = 0
+      let losses = 0
+      for (let b = 0; b < ELEMENT_COUNT; b++) {
+        if (beats(a,b)) wins++
+        if (beats(b,a)) losses++
+        expect(beats(a,b) && beats(b,a)).toBe(false)
+      }
+      expect([wins,losses]).toEqual([2,2])
     }
   })
-  it('counterOf follows Fire > Gold > Frost > Fire', () => {
-    expect(counterOf(1)).toBe(0) // Fire beats Gold
-    expect(counterOf(2)).toBe(1) // Gold beats Frost
-    expect(counterOf(0)).toBe(2) // Frost beats Fire
+  it('keeps the original triangle: Fire > Gold > Frost > Fire', () => {
+    expect(beats(FIRE,GOLD)).toBe(true)
+    expect(beats(GOLD,FROST)).toBe(true)
+    expect(beats(FROST,FIRE)).toBe(true)
+  })
+  it('the element advantage pushes a clash toward the weaker element', () => {
+    const s = round([NATURE,FIRE]) // Nature beats Fire
+    for (let i = 0; i < seconds(2); i++) step(s,[{ ...still(at(s,0)), hold:true }, { ...still(at(s,1)), hold:true }])
+    expect(s.clash).not.toBeNull()
+    expect(s.clash!.position).toBeGreaterThan(.5) // pushed toward the Fire mage
+  })
+  it("a mage's element is fixed for the round", () => {
+    const s = round([LIGHT,NATURE])
+    for (let i = 0; i < 30; i++) step(s,[{ ...still(), element:FIRE } as Command, still()])
+    expect(s.mages.map(m => m.element)).toEqual([LIGHT,NATURE])
+  })
+  it('round() falls back to Fire for an invalid element', () => {
+    expect(round([7,-1]).mages.map(m => m.element)).toEqual([FIRE,FIRE])
+  })
+})
+
+function beamFor(elements: [number,number], ticks: number, targetShield = false) {
+  const s = round(elements)
+  s.mages[0].p.x = 3 // the target stays out of the way of its own shield clash
+  for (let i = 0; i < ticks; i++) {
+    const shielding = targetShield ? { ...still({x:-1,z:0}), hold:true } : still()
+    step(s,[shielding, { ...still(at(s,1)), hold:true }])
+    s.mages[0].mana = 100
+  }
+  return s
+}
+
+describe('Light and Nature', () => {
+  it('Light pierces a Frost shield; Fire does not', () => {
+    const light = beamFor([FROST,LIGHT],seconds(1.5),true)
+    const fire = beamFor([FROST,FIRE],seconds(1.5),true)
+    // Light's beam is weaker than Fire's, yet it does more damage through the shield.
+    expect(100-light.mages[0].hp).toBeGreaterThan(100-fire.mages[0].hp)
+  })
+  it('Nature poison keeps hurting after the beam stops', () => {
+    const s = beamFor([FIRE,NATURE],seconds(1))
+    expect(s.mages[0].poison).toBeGreaterThan(0)
+    // Letting go fires the release burst; wait for it to land before measuring poison alone.
+    for (let i = 0; i < seconds(.6); i++) step(s,[still(), still()])
+    expect(s.bolts.length).toBe(0)
+    const hp = s.mages[0].hp
+    for (let i = 0; i < seconds(1); i++) step(s,[still(), still()])
+    expect(hp-s.mages[0].hp).toBeCloseTo(POISON_DPS,0)
+  })
+  it('Nature roots once, then not again until the cooldown ends', () => {
+    const s = round([FIRE,NATURE])
+    let roots = 0
+    let wasRooted = false
+    for (let i = 0; i < seconds(2.5); i++) {
+      step(s,[still(), { ...still(at(s,1)), hold:true }])
+      s.mages[1].mana = 100
+      if (s.mages[0].root > 0 && !wasRooted) roots++
+      wasRooted = s.mages[0].root > 0
+    }
+    expect(roots).toBe(1)
   })
 })

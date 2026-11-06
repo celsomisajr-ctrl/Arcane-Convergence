@@ -15,12 +15,12 @@
   <div id="round">ROUND 1</div>
   <section><strong>Rival <small id="losses"></small></strong><meter id="hp1" min="0" max="100" value="100" aria-label="Rival health"></meter><meter class="mana" id="mp1" min="0" max="100" value="100" aria-label="Rival mana"></meter><span id="elem1"></span></section>
 </header>
-<div id="clash" hidden><strong>BEAM CLASH</strong><div class="track" id="tug"><i></i></div><div class="track" id="beat"><b></b><i></i></div><span id="pulse-text">Tap Channel in the bright zone</span></div>
+<div id="clash" hidden><strong>BEAM CLASH</strong><div class="track" id="tug"><i></i></div><div class="track" id="beat"><b></b><i></i></div><span id="pulse-text">Tap Ultimate in the bright zone</span></div>
 <div id="status"></div>
-<footer>WASD Move · Mouse Aim · LMB Channel · RMB Bolt · Space Blink · Clash: click or E to pulse · 1–3 Element · Q Lock-on</footer>
-<div id="touch"><div id="stick" aria-label="Move"><i></i></div><div class="buttons"><button data-action="element">Element</button><button data-action="dash">Blink</button><button data-action="bolt">Bolt</button><button data-action="pulse">Pulse</button><button data-action="hold">Channel</button></div></div>
+<footer>WASD Move · Mouse Aim · Click Ultimate (click again to release) · RMB Bolt · Space Blink · Clash: click or E on the beat · Q Lock-on</footer>
+<div id="touch"><div id="stick" aria-label="Move"><i></i></div><div class="buttons"><button data-action="dash">Blink</button><button data-action="bolt">Bolt</button><button data-action="pulse">Pulse</button><button data-action="hold">Ultimate</button></div></div>
 <div id="rotate" hidden><div class="phone"></div><p>Rotate your phone to landscape</p><small>The duel is paused</small></div>
-<div id="overlay"><article><p class="kicker">1V1 MAGE DUEL / PLAYABLE GREYBOX</p><h1>Arcane<br>Convergence</h1><p id="message">Hold to channel. Interrupt with a bolt. When beams collide, pulse in time to overpower your rival.</p><label id="difficulty-label">Rival difficulty <select id="difficulty"><option>Apprentice</option><option selected>Adept</option><option>Archmage</option></select></label><button id="start">Enter the arena</button></article></div>
+<div id="overlay"><article><p class="kicker">1V1 MAGE DUEL / PLAYABLE GREYBOX</p><h1>Arcane <br>Convergence</h1><p id="message">Choose your mage. Press Ultimate to unleash it, interrupt with a bolt, and when beams collide, tap Ultimate on the beat to overpower your rival.</p><div id="mages" role="radiogroup" aria-label="Choose your mage"></div><label id="difficulty-label">Rival difficulty <select id="difficulty"><option>Apprentice</option><option selected>Adept</option><option>Archmage</option></select></label><button id="start">Enter the arena</button></article></div>
 <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

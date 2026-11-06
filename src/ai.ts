@@ -7,8 +7,6 @@ export const PULSE_ACCURACY = [.45,.7,.88]
 export const CHANNEL_SHARE = [.22,.45,.75]
 /** Seconds after the player's beam goes live before the rival bolts to interrupt it. */
 export const REACTION = [.7,.45,.25]
-/** Chance (per 8 s element window) that the rival counter-picks a channeling player's element. */
-export const COUNTER_PICK = [0,.5,1]
 
 /** Deterministic 0..1 hash, so AI "choices" are reproducible without Math.random. */
 function hash(n: number) {
@@ -19,8 +17,6 @@ function hash(n: number) {
   return (x >>> 0)/4294967296
 }
 
-/** The element that beats `e` in a clash: Fire > Gold > Frost > Fire. */
-export const counterOf = (e: number) => (e+2)%3
 
 export function decide(s: Duel, difficulty: number): Command {
   const d = difficulty in REACTION ? difficulty : 1
@@ -42,12 +38,6 @@ export function decide(s: Duel, difficulty: number): Command {
   // An occasional poke while idle with mana to spare.
   const poke = ready && !hold && ai.mana > 60 && cycle > .8 && cycle < .84
 
-  // Counter-pick only when a clash is likely (player channeling); otherwise pick for damage,
-  // since Frost's channel is a shield and deals none. Elements only change while idle.
-  const window = Math.floor(s.time/8)
-  const element = player.charge > 0 && hash(window*17+d) < COUNTER_PICK[d] ? counterOf(player.element)
-    : d === 0 ? window%3 : d === 1 ? window%2 : 0
-
   const side = Math.sin(s.time*1.3) > 0 ? 1 : -1
   const stride = ai.mana < 26 || distance < 4 ? -.8 : distance > 10 ? .8 : 0
   const phase = s.clash ? pulsePhase(s.clash.age) : 0
@@ -55,7 +45,7 @@ export function decide(s: Duel, difficulty: number): Command {
   const onBeat = hash(beatIndex*31+d) < PULSE_ACCURACY[d]
   const pulseAt = onBeat ? .6-d*.06 : .73
   return {
-    aim, hold, element,
+    aim, hold,
     move:{x:aim.x*stride+aim.z*side*.65,z:aim.z*stride-aim.x*side*.65},
     pulse:phase >= pulseAt && phase < pulseAt+.035,
     bolt:interrupt || poke,
