@@ -24,6 +24,10 @@ let lockFreeze = 0
 let impactFreeze = 0
 let matchEnded = true
 let arena: ReturnType<typeof view> | undefined
+// Dev-only hook for inspecting effects: window.__ac.paused freezes the simulation while
+// drawing continues, and window.__ac.duel exposes the live state. Stripped from builds.
+const debug = import.meta.env.DEV ? { paused:false, get duel() { return duel } } : undefined
+if (debug) Object.assign(window,{__ac:debug})
 try {
   arena = view(canvas)
 } catch {
@@ -51,7 +55,7 @@ function run(arena: ReturnType<typeof view>) {
   function frame(now: number) {
     const dt = last ? Math.min(.1,(now-last)/1000) : 0
     last = now
-    if (playing) {
+    if (playing && !debug?.paused) {
       lockFreeze = Math.max(0,lockFreeze-dt)
       impactFreeze = Math.max(0,impactFreeze-dt)
       accumulator += impactFreeze ? 0 : dt*(lockFreeze ? .22 : 1)
