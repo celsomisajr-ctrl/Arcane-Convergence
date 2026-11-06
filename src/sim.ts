@@ -3,7 +3,7 @@ export const LIMIT = 9
 export type Point = { x: number; z: number }
 /** One player's input for one tick. Slots follow the on-screen buttons. Skill slots 1–3 are
  *  placeholders until the PO assigns each mage's real skills: 1 = element beam (held),
- *  2 = Blink, 3 = locked. */
+ *  2 and 3 = locked. Blink is the battle-spell slot. */
 export type Command = {
   move: Point
   aim: Point
@@ -11,17 +11,26 @@ export type Command = {
   skill1: boolean
   /** Basic attack pressed (replaces the old bolt). */
   basic?: boolean
-  /** Skill 2 pressed: Blink (placeholder). */
+  /** Battle spell pressed: Blink. */
+  blink?: boolean
+  /** Skill 2 pressed: locked (placeholder, no effect). */
   skill2?: boolean
   /** Skill 3 pressed: locked (placeholder, no effect). */
   skill3?: boolean
-  /** Ultimate held. Starts only with a full ring, then drains it while held. */
+  /** Ultimate pressed this tick. With a full ring it starts the Weave at `ultTarget`;
+   *  pressed again during the channel it releases early. */
   ult?: boolean
+  /** Ground point the Ultimate is aimed at (clamped to ULT_RANGE). Defaults to the enemy. */
+  ultTarget?: Point
   /** Clash pulse on the bright bar. */
   pulse?: boolean
 }
-export type Mage = { p: Point; aim: Point; hp: number; mana: number; charge: number; stun: number; dash: number; cooldown: number; element: number; slow: number; quick: number; velocity: Point; spent: boolean; poison: number; root: number; rootCd: number; ult: number; ulting: boolean; ultShot: number }
-type Bolt = { p: Point; v: Point; owner: number; element: number; power: number; life: number; kind: 'basic' | 'volley' }
+/** The Ultimate in progress: gather (interruptible windup), channel (waves into the target
+ *  circle, steerable with the move stick) and release (the final burst). `t` counts seconds
+ *  in the current phase. */
+export type Weave = { phase: 'gather' | 'channel' | 'release'; t: number; target: Point; waves: number }
+export type Mage = { p: Point; aim: Point; hp: number; mana: number; charge: number; stun: number; dash: number; cooldown: number; element: number; slow: number; quick: number; velocity: Point; spent: boolean; poison: number; burn: number; root: number; rootCd: number; ult: number; ulting: boolean; weave: Weave | null }
+type Bolt = { p: Point; v: Point; owner: number; element: number; power: number; life: number; kind: 'basic' }
 export const clamp = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x))
 export const delta = (a: Point, b: Point) => ({ x: b.x - a.x, z: b.z - a.z })
 export const length = (v: Point) => Math.hypot(v.x, v.z)
@@ -56,30 +65,78 @@ export const POISON_TIME = 2.5
 export const POISON_DPS = 3
 export const ROOT_TIME = .6
 export const ROOT_COOLDOWN = 3
-// Ultimate: its own ring, full before it can start; hold to pour it into a bullet-like rain.
+// Ultimate ("the Weave"): its own ring, full before it can start. Aim a circle, gather the
+// threads (interruptible), then channel waves of threads into the circle and release a burst.
 export const ULT_MAX = 100
 /** Ring refill per second on its own (a full ring in 30 s). */
 export const ULT_REGEN = ULT_MAX/30
-/** Ring drained per second while casting (a full ring lasts 2.5 s). */
-export const ULT_DRAIN = ULT_MAX/2.5
-export const ULT_SHOT_EVERY = .1
-export const ULT_SHOT_POWER = 2.5
-/** How fast Ultimate shots turn toward the target (rad/s). */
-export const ULT_SHOT_HOMING = .8
 /** Extra ring per point of damage dealt and taken, so fighting earns the Ultimate sooner. */
 export const ULT_FROM_DEALT = .5
 export const ULT_FROM_TAKEN = .3
-/** One shot of the Ultimate rain, aimed at the enemy with a small deterministic spread. */
-function volley(s: Duel, i: number) {
+/** How far from the caster the Weave's circle can be placed. */
+export const ULT_RANGE = 9
+/** Radius of the Weave's target circle. */
+export const WEAVE_RADIUS = 3
+/** Windup while the threads gather. A hit in this phase interrupts and refunds half the ring. */
+export const GATHER_TIME = .7
+/** Longest channel; the ring drains over this time. */
+export const WEAVE_TIME = 3
+export const WAVE_EVERY = .25
+/** Damage per wave to a mage inside the circle, by element (Fire, Gold, Frost, Light, Nature). */
+export const WAVE_DAMAGE = [2.8,2.2,2.2,2.4,2.2]
+/** The release burst inside the circle, by element. */
+export const RELEASE_DAMAGE = [22,20,16,18,18]
+/** Stun from the release (a knock-up); Frost's freeze lasts longer. */
+export const RELEASE_STUN = [.45,.45,.85,.45,.45]
+/** How long the release burst plays before the caster is free. */
+export const RELEASE_TIME = .45
+/** How fast the move stick steers the circle during the channel (m/s). */
+export const STEER_SPEED = 3.4
+export const BURN_TIME = 2
+export const BURN_DPS = 3.5
+export const insideWeave = (w: Weave, p: Point) => length(delta(w.target,p)) <= WEAVE_RADIUS
+function placeWeave(m: Mage, want: Point): Point {
+  const off = delta(m.p,want)
+  const d = length(off)
+  const k = d > ULT_RANGE ? ULT_RANGE/d : 1
+  return { x:clamp(m.p.x+off.x*k,-LIMIT,LIMIT), z:clamp(m.p.z+off.z*k,-LIMIT,LIMIT) }
+}
+/** One wave of threads lashing into the circle. Element payloads ride on top. */
+function wave(s: Duel, i: number) {
   const m = s.mages[i]
-  const dir = unit(delta(m.p,s.mages[1-i].p))
-  const a = Math.sin(s.time*53.7+i*2.1)*.07
-  const v = { x:dir.x*Math.cos(a)-dir.z*Math.sin(a), z:dir.x*Math.sin(a)+dir.z*Math.cos(a) }
-  s.bolts.push({ p:{...m.p}, v, owner:i, element:m.element, power:ULT_SHOT_POWER, life:1, kind:'volley' })
+  const target = s.mages[1-i]
+  m.weave!.waves++
+  if (target.dash || !insideWeave(m.weave!,target.p)) return
+  target.hp = Math.max(0,target.hp-WAVE_DAMAGE[m.element])
+  s.impact = Math.max(s.impact,.05)
+  if (m.element === FIRE) target.burn = BURN_TIME
+  if (m.element === GOLD) { target.slow = .4; target.mana = Math.max(0,target.mana-4) }
+  if (m.element === FROST) target.slow = .3
+  if (m.element === LIGHT) m.hp = Math.min(100,m.hp+1.2) // Soul Drain
+  if (m.element === NATURE) target.root = Math.max(target.root,.3)
+}
+/** The final converging burst. */
+function release(s: Duel, i: number) {
+  const m = s.mages[i]
+  const target = s.mages[1-i]
+  s.impact = Math.max(s.impact,.45)
+  if (target.dash || !insideWeave(m.weave!,target.p)) return
+  target.hp = Math.max(0,target.hp-RELEASE_DAMAGE[m.element])
+  target.stun = Math.max(target.stun,RELEASE_STUN[m.element])
+  target.charge = 0
+  if (target.weave?.phase === 'gather') endWeave(target,true)
+  if (m.element === FIRE) target.burn = BURN_TIME
+  if (m.element === NATURE) target.root = Math.max(target.root,1)
+}
+function endWeave(m: Mage, interrupted = false) {
+  if (interrupted && m.weave?.phase === 'gather') m.ult = ULT_MAX*.5
+  else if (m.weave) m.ult = 0
+  m.weave = null
+  m.ulting = false
 }
 const validElement = (e: number) => Number.isInteger(e) && e >= 0 && e < ELEMENT_COUNT ? e : FIRE
 function mage(z: number, element: number): Mage {
-  return { p: {x:0,z}, aim: {x:0,z:-Math.sign(z)}, hp:100, mana:100, charge:0, stun:0, dash:0, cooldown:0, element:validElement(element), slow:0, quick:0, velocity:{x:0,z:0}, spent:false, poison:0, root:0, rootCd:0, ult:0, ulting:false, ultShot:0 }
+  return { p: {x:0,z}, aim: {x:0,z:-Math.sign(z)}, hp:100, mana:100, charge:0, stun:0, dash:0, cooldown:0, element:validElement(element), slow:0, quick:0, velocity:{x:0,z:0}, spent:false, poison:0, burn:0, root:0, rootCd:0, ult:0, ulting:false, weave:null }
 }
 /** A fresh round. `elements` are the two players' mage elements (player 0 starts at z = 5). */
 export function round(elements: readonly [number, number] = [FIRE, FIRE]) {
@@ -147,17 +204,21 @@ export function step(s: Duel, commands: readonly Command[]) {
       m.poison = Math.max(0,m.poison-STEP)
       m.hp = Math.max(0,m.hp-POISON_DPS*STEP)
     }
+    if (m.burn > 0) {
+      m.burn = Math.max(0,m.burn-STEP)
+      m.hp = Math.max(0,m.hp-BURN_DPS*STEP)
+    }
     if (length(c.aim) > 0 && !s.clash) {
       m.aim = m.charge > BEAM_ACTIVE ? turnToward(m.aim,unit(c.aim),CHANNEL_TURN_RATE*STEP) : unit(c.aim)
     }
     if (!c.skill1) m.spent = false
     if (!m.ulting) m.ult = Math.min(ULT_MAX,m.ult+ULT_REGEN*STEP)
     if (m.stun) {
-      m.ulting = false
+      if (m.weave) endWeave(m,true)
       continue
     }
     const movement = length(c.move) > 1 ? unit(c.move) : c.move
-    if (c.skill2 && !m.cooldown && !m.ulting) {
+    if (c.blink && !m.cooldown && !m.ulting) {
       m.dash = .18
       m.cooldown = 1.25
       m.velocity = length(movement) > .1 ? unit(movement) : m.aim
@@ -167,21 +228,28 @@ export function step(s: Duel, commands: readonly Command[]) {
       shift(m,m.velocity,15*STEP)
       continue
     }
-    // Ultimate: needs a full ring to start; while held it drains the ring and rains shots.
-    const wantsUlt = !!c.ult && !s.clash
-    if (m.ulting && (!wantsUlt || m.ult <= 0)) m.ulting = false
-    else if (!m.ulting && wantsUlt && m.ult >= ULT_MAX) {
+    // Ultimate: a full ring starts the Weave at the aimed point; the caster is rooted until it ends.
+    if (!m.weave && c.ult && m.ult >= ULT_MAX && !s.clash) {
+      m.weave = { phase:'gather', t:0, target:placeWeave(m,c.ultTarget ?? s.mages[1-i].p), waves:0 }
       m.ulting = true
       m.charge = 0
-      m.ultShot = 0
     }
-    if (m.ulting) {
-      m.ult = Math.max(0,m.ult-ULT_DRAIN*STEP)
-      m.ultShot -= STEP
-      if (m.ultShot <= 0) {
-        m.ultShot += ULT_SHOT_EVERY
-        volley(s,i)
-      }
+    if (m.weave) {
+      const w = m.weave
+      w.t += STEP
+      if (w.phase === 'gather' && w.t >= GATHER_TIME) {
+        w.phase = 'channel'
+        w.t = 0
+      } else if (w.phase === 'channel') {
+        m.ult = Math.max(0,m.ult-ULT_MAX/WEAVE_TIME*STEP)
+        w.target = placeWeave(m,{ x:w.target.x+movement.x*STEER_SPEED*STEP, z:w.target.z+movement.z*STEER_SPEED*STEP })
+        if (w.t >= WAVE_EVERY*(w.waves+1)) wave(s,i)
+        if (!m.ult || (c.ult && w.t > .2)) {
+          w.phase = 'release'
+          w.t = 0
+          release(s,i)
+        }
+      } else if (w.phase === 'release' && w.t >= RELEASE_TIME) endWeave(m)
       continue // rooted and committed while casting
     }
     if (!s.clash && !m.root) shift(m,movement,STEP*(c.skill1 ? 1.2 : 5)*(m.slow ? .42 : 1))
@@ -258,11 +326,6 @@ export function step(s: Duel, commands: readonly Command[]) {
     const travel = 24*STEP
     const along = clamp(dot(offset,bolt.v),0,travel)
     if (!target.dash && Math.hypot(offset.x-bolt.v.x*along,offset.z-bolt.v.z*along) < .65) {
-      if (bolt.kind === 'volley') {
-        target.hp = Math.max(0,target.hp-bolt.power)
-        s.impact = Math.max(s.impact,.06)
-        return false
-      }
       if (target.charge > .28 && target.element === FROST && dot(target.aim,bolt.v) < -.65 && bolt.life < 1) {
         bolt.owner = 1-bolt.owner
         bolt.v = {...target.aim}
@@ -272,16 +335,14 @@ export function step(s: Duel, commands: readonly Command[]) {
       }
       target.hp = Math.max(0,target.hp-bolt.power)
       target.charge = 0
-      target.stun = .24
+      // A hit interrupts a gathering Weave; once the channel runs, the caster is committed.
+      if (!target.weave || target.weave.phase === 'gather') target.stun = .24
       if (bolt.element === GOLD) target.slow = .75
       if (bolt.element === NATURE) target.poison = POISON_TIME
       s.impact = .16
       s.clash = null
       return false
     }
-    // Ultimate shots curve gently toward their target: moving reduces the damage but can't
-    // dodge the whole rain.
-    if (bolt.kind === 'volley') bolt.v = turnToward(bolt.v,unit(offset),ULT_SHOT_HOMING*STEP)
     bolt.p.x += bolt.v.x*travel
     bolt.p.z += bolt.v.z*travel
     bolt.life -= STEP

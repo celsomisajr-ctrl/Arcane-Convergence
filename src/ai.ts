@@ -1,4 +1,4 @@
-import { BEAM_ACTIVE, CHANNEL_MIN_MANA, ULT_MAX, delta, length, pulsePhase, unit, type Command, type Duel } from './sim'
+import { BEAM_ACTIVE, CHANNEL_MIN_MANA, ULT_MAX, ULT_RANGE, WEAVE_RADIUS, delta, length, pulsePhase, unit, type Command, type Duel } from './sim'
 
 // Per-difficulty tuning: [Apprentice, Adept, Archmage].
 /** Chance per beat that the rival pulses inside the bright band. */
@@ -44,13 +44,23 @@ export function decide(s: Duel, difficulty: number): Command {
   const beatIndex = s.clash ? Math.floor(s.clash.age/.85) : 0
   const onBeat = hash(beatIndex*31+d) < PULSE_ACCURACY[d]
   const pulseAt = onBeat ? .6-d*.06 : .73
-  // Ultimate: fire the rain when the ring is full and the player is in range; hold it until spent.
-  const ult = ai.ulting || (ai.ult >= ULT_MAX && distance < 12 && !s.clash && !player.dash)
+  // Ultimate: cast the Weave on the player when the ring is full and they're in range, then
+  // steer the circle after them during the channel.
+  const ult = !ai.weave && ai.ult >= ULT_MAX && distance < ULT_RANGE+1 && !s.clash && !player.dash
+  let move = {x:aim.x*stride+aim.z*side*.65,z:aim.z*stride-aim.x*side*.65}
+  if (ai.weave?.phase === 'channel') move = unit(delta(ai.weave.target,player.p))
+  // Step out of the player's Weave circle (Apprentice is slow to notice).
+  const threat = player.weave
+  if (threat && threat.phase !== 'release' && length(delta(threat.target,ai.p)) < WEAVE_RADIUS+.6 && (d > 0 || threat.t > .5)) {
+    move = unit(delta(threat.target,ai.p))
+  }
   return {
-    aim, skill1:hold && !ult, ult,
-    move:{x:aim.x*stride+aim.z*side*.65,z:aim.z*stride-aim.x*side*.65},
+    aim, skill1:hold && !ult && !ai.weave, ult, ultTarget:player.p, move,
     pulse:phase >= pulseAt && phase < pulseAt+.035,
-    basic:interrupt || poke,
-    skill2:d > 0 && s.bolts.some(b => b.owner === 0 && length(delta(b.p,ai.p)) < 2.1),
+    // Try to interrupt a gathering Weave after the usual reaction delay. Only a quick rival's
+    // bolt lands before the gather completes.
+    basic:interrupt || poke || (ready && d > 0 && player.weave?.phase === 'gather' && player.weave.t > REACTION[d] && distance < 12),
+    blink:d > 0 && (s.bolts.some(b => b.owner === 0 && length(delta(b.p,ai.p)) < 2.1)
+      || (threat?.phase === 'gather' && length(delta(threat.target,ai.p)) < WEAVE_RADIUS)),
   }
 }

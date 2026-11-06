@@ -11,23 +11,39 @@
 <body>
 <canvas aria-label="Mage duel arena"></canvas>
 <header id="hud">
-  <section><strong>You <small id="wins"></small></strong><meter id="hp0" min="0" max="100" value="100" aria-label="Your health"></meter><meter class="mana" id="mp0" min="0" max="100" value="100" aria-label="Your mana"></meter><span id="elem0"></span></section>
-  <div id="round">ROUND 1</div>
-  <section><strong>Rival <small id="losses"></small></strong><meter id="hp1" min="0" max="100" value="100" aria-label="Rival health"></meter><meter class="mana" id="mp1" min="0" max="100" value="100" aria-label="Rival mana"></meter><span id="elem1"></span></section>
+  <section class="plate" id="plate0"><div class="portrait"><svg viewBox="0 0 24 24"><use href="#i-ult0"/></svg></div><div class="bars"><div class="who"><strong>You</strong><span class="pips" id="wins"></span></div><div class="hp"><i class="trail"></i><i class="fill"></i></div><div class="mp"><i class="fill"></i></div><span class="el" id="elem0"></span></div></section>
+  <div id="center"><div id="round">ROUND 1</div><div id="timer">0:00</div></div>
+  <section class="plate rival" id="plate1"><div class="portrait"><svg viewBox="0 0 24 24"><use href="#i-ult0"/></svg></div><div class="bars"><div class="who"><strong>Rival</strong><span class="pips" id="losses"></span></div><div class="hp"><i class="trail"></i><i class="fill"></i></div><div class="mp"><i class="fill"></i></div><span class="el" id="elem1"></span></div></section>
 </header>
+<div id="heads"><div class="head you"><b></b><div class="hp"><i></i></div><div class="mp"><i></i></div></div><div class="head rival"><b></b><div class="hp"><i></i></div><div class="mp"><i></i></div></div></div>
 <div id="clash" hidden><strong>BEAM CLASH</strong><div class="track" id="tug"><i></i></div><div class="track" id="beat"><b></b><i></i></div><span id="pulse-text">Tap Skill 1 in the bright zone</span></div>
 <div id="status"></div>
-<footer>WASD Move · Mouse Aim · Click Basic attack · Right-click/1 Skill 1 (hold) · Space/2 Skill 2 · 3 Skill 3 · R Ultimate (hold) · Clash: 1 or E on the beat · Q Lock-on</footer>
-<div id="touch"><div id="stick" aria-label="Move"><i></i></div></div>
+<div id="announce"></div>
+<div id="banner" hidden><div class="portrait"><svg viewBox="0 0 24 24"><use href="#i-ult0"/></svg></div><div><small></small><b></b></div></div>
+<footer>WASD Move · Mouse Aim · Click Basic attack · Right-click/1 Skill 1 (hold) · Space/F Blink · Hold R to aim the Ultimate, release to cast (R again releases early) · Clash: 1 or E on the beat</footer>
+<div id="stickzone"><div id="stick"><i></i></div></div>
+<div id="cancel" hidden><span>✕</span><small>Cancel</small></div>
 <div id="skills" aria-label="Skills">
-  <button data-action="ult" class="ult" aria-label="Ultimate"><span class="name">Ultimate</span><span class="key">R</span></button>
-  <button data-action="skill3" class="skill s3 locked" aria-label="Skill 3"><span class="name">Locked</span><span class="key">3</span></button>
-  <button data-action="skill2" class="skill s2" aria-label="Skill 2"><span class="name">Blink</span><span class="key">2</span></button>
-  <button data-action="skill1" class="skill s1" aria-label="Skill 1"><span class="name">Beam</span><span class="key">1</span></button>
-  <button data-action="basic" class="basic" aria-label="Basic attack"><span class="name">Attack</span></button>
+  <button data-action="ult" class="ult" aria-label="Ultimate"><svg class="icon" viewBox="0 0 24 24"><use href="#i-ult0"/></svg><span class="cd"></span><span class="key">R</span></button>
+  <button data-action="skill3" class="skill s3 locked" aria-label="Skill 3 (locked)"><svg class="icon" viewBox="0 0 24 24"><use href="#i-lock"/></svg><span class="key">3</span></button>
+  <button data-action="skill2" class="skill s2 locked" aria-label="Skill 2 (locked)"><svg class="icon" viewBox="0 0 24 24"><use href="#i-lock"/></svg><span class="key">2</span></button>
+  <button data-action="skill1" class="skill s1" aria-label="Skill 1: Beam"><svg class="icon" viewBox="0 0 24 24"><use href="#i-beam"/></svg><span class="cost"></span><span class="key">1</span></button>
+  <button data-action="basic" class="basic" aria-label="Basic attack"><svg class="icon" viewBox="0 0 24 24"><use href="#i-basic"/></svg><span class="cd"></span></button>
+  <button data-action="blink" class="spell" aria-label="Blink"><svg class="icon" viewBox="0 0 24 24"><use href="#i-blink"/></svg><span class="cd"></span><span class="key">F</span></button>
 </div>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <symbol id="i-basic" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2l2.2 6.6L21 9.5l-5.3 4 1.9 6.9L12 16.6l-5.6 3.8 1.9-6.9L3 9.5l6.8-.9z"/></symbol>
+  <symbol id="i-beam" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="5" cy="12" r="2.5" fill="currentColor"/><path d="M8 12h14"/><path d="M8 8.5c4 0 6 2 14 1.5M8 15.5c4 0 6-2 14-1.5" stroke-width="1.3" opacity=".8"/></g></symbol>
+  <symbol id="i-blink" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 18l6-6-3-1 8-7"/><path d="M15 4h3v3"/><circle cx="17" cy="17" r="3" fill="currentColor" stroke="none"/></g></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="10" rx="2" fill="currentColor" opacity=".35"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></g></symbol>
+  <symbol id="i-ult0" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2c1 4 6 6 6 12a6 6 0 0 1-12 0c0-3 2-5 2-5 0 2 1 3 2 3-1-4 1-7 2-10z"/></symbol>
+  <symbol id="i-ult1" viewBox="0 0 24 24"><path fill="currentColor" d="M12 1l2 3v11h-4V4zM6 15h12v2h-5v3l-1 3-1-3v-3H6z"/></symbol>
+  <symbol id="i-ult2" viewBox="0 0 24 24"><g stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2v20M3.3 7l17.4 10M3.3 17L20.7 7"/><path d="M9.5 3.5L12 6l2.5-2.5M9.5 20.5L12 18l2.5 2.5" fill="none"/></g></symbol>
+  <symbol id="i-ult3" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s4-6 10-6 10 6 10 6-4 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="3" fill="currentColor"/></g></symbol>
+  <symbol id="i-ult4" viewBox="0 0 24 24"><path fill="currentColor" d="M3 20l4-9 4 3 3-8 7 14z"/><circle cx="17" cy="5" r="2" fill="currentColor"/></symbol>
+</defs></svg>
 <div id="rotate" hidden><div class="phone"></div><p>Rotate your phone to landscape</p><small>The duel is paused</small></div>
-<div id="overlay"><article><p class="kicker">1V1 MAGE DUEL / PLAYABLE GREYBOX</p><h1>Arcane <br>Convergence</h1><p id="message">Choose your mage. Fill your Ultimate ring, then hold Ultimate to unleash it. When beams collide, tap Skill 1 on the beat.</p><div id="mages" role="radiogroup" aria-label="Choose your mage"></div><label id="difficulty-label">Rival difficulty <select id="difficulty"><option>Apprentice</option><option selected>Adept</option><option>Archmage</option></select></label><button id="start">Enter the arena</button></article></div>
+<div id="overlay"><article><p class="kicker">1V1 MAGE DUEL / PLAYABLE GREYBOX</p><h1>Arcane <br>Convergence</h1><p id="message">Choose your mage. Tap a skill to auto-aim, or drag it to aim. When your Ultimate ring is full, drag it onto the rival to cast the Weave. When beams collide, tap Skill 1 on the beat.</p><div id="mages" role="radiogroup" aria-label="Choose your mage"></div><label id="difficulty-label">Rival difficulty <select id="difficulty"><option>Apprentice</option><option selected>Adept</option><option>Archmage</option></select></label><button id="start">Enter the arena</button></article></div>
 <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

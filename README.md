@@ -21,7 +21,16 @@ Pick one of five mages before the match. Your mage's colour fixes its element fo
 
 Every mage casts by weaving threads in their colour; each skill adds its own effect on top. The AI rival gets a random mage each round, never your colour. (Online 1v1 is planned: one mage per player.)
 
-**Controls.** WASD moves, the mouse aims in free-aim mode, and Q toggles the default lock-on. Click (or tap **Ultimate**) once to unleash your Ultimate; it pours until your mana runs out, and another click releases it early with a final burst. Right click fires an interrupting bolt and Space blinks. When beams clash, your Ultimate holds itself: click/tap Ultimate (or press E) once per beat as the marker crosses the bright band; blink to break away. On touchscreens, move with the virtual stick and use the on-screen buttons with auto-aim; phones play in landscape.
+**Controls (Mobile Legends style).** The camera is a fixed 3/4 view from above. On touchscreens, touch anywhere on the left side for a floating joystick. Every skill button can be tapped to auto-target the rival, or pressed and dragged to aim with a ground indicator. Skill 1 is the element beam: hold it to channel, and drag while holding to steer. Blink sits in the small battle-spell slot. Skills 2 and 3 stay locked until each mage's kit is defined. When beams clash, your beam holds itself: tap Skill 1 (or press E) once per beat as the marker crosses the bright band, or blink to break away. Phones play in landscape.
+
+On desktop, WASD moves and the mouse aims. Left click is the basic attack, right-click hold (or 1) channels the beam, and Space or F blinks. Hold R to aim the Ultimate at the cursor, release to cast, and press Esc to cancel.
+
+**The Ultimate: the Weave.** Fill the ring, then drag the Ultimate button onto the arena to place a circle within range. Drag it onto Cancel to call it off.
+- **Gather (0.7 s):** you rise with your arms out while threads stream in from the hall. A hit in this phase interrupts the Weave and refunds half the ring.
+- **Channel (up to 3 s):** waves of threads lash into the circle. The joystick (or WASD) steers it, and you stay rooted.
+- **Release:** a final burst that stuns. It fires when the ring runs out, or early when you tap the Ultimate again.
+
+Each element changes the payload: Hell Fire burns, Giant Sword slows and drops a blade, Sharp Blizzard freezes on release, Soul Drain heals you, and Huge Rocks roots and drops boulders. The rival casts its Weave on you, steers it after you, and steps out of yours. Your circle is drawn in your colour; the rival's is drawn as a red warning.
 
 The simulation in `src/sim.ts` advances serializable duel state at 60 ticks per second from per-mage commands. The AI supplies commands separately. The Three.js view reads simulation state and handles camera and spell effects. The browser entry point owns match flow and timing.
 
