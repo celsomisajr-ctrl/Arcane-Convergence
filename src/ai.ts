@@ -1,4 +1,4 @@
-import { BEAM_ACTIVE, CHANNEL_MIN_MANA, delta, length, pulsePhase, unit, type Command, type Duel } from './sim'
+import { BEAM_ACTIVE, CHANNEL_MIN_MANA, ULT_MAX, delta, length, pulsePhase, unit, type Command, type Duel } from './sim'
 
 // Per-difficulty tuning: [Apprentice, Adept, Archmage].
 /** Chance per beat that the rival pulses inside the bright band. */
@@ -25,9 +25,9 @@ export function decide(s: Duel, difficulty: number): Command {
   const distance = length(delta(ai.p,player.p))
   const period = 5.2 - d*.5
   const cycle = s.time % period
-  const ready = !ai.quick && !ai.stun && ai.mana >= 10 && !s.clash
+  const ready = !ai.quick && !ai.stun && !s.clash
 
-  // Punish a live player beam with a bolt after a human-ish reaction delay.
+  // Punish a live player beam with a basic attack after a human-ish reaction delay.
   const interrupt = ready && player.charge > BEAM_ACTIVE+REACTION[d]
 
   const wantsToChannel = cycle > period*(1-CHANNEL_SHARE[d])
@@ -44,11 +44,13 @@ export function decide(s: Duel, difficulty: number): Command {
   const beatIndex = s.clash ? Math.floor(s.clash.age/.85) : 0
   const onBeat = hash(beatIndex*31+d) < PULSE_ACCURACY[d]
   const pulseAt = onBeat ? .6-d*.06 : .73
+  // Ultimate: fire the rain when the ring is full and the player is in range; hold it until spent.
+  const ult = ai.ulting || (ai.ult >= ULT_MAX && distance < 12 && !s.clash && !player.dash)
   return {
-    aim, hold,
+    aim, skill1:hold && !ult, ult,
     move:{x:aim.x*stride+aim.z*side*.65,z:aim.z*stride-aim.x*side*.65},
     pulse:phase >= pulseAt && phase < pulseAt+.035,
-    bolt:interrupt || poke,
-    dash:d > 0 && s.bolts.some(b => b.owner === 0 && length(delta(b.p,ai.p)) < 2.1),
+    basic:interrupt || poke,
+    skill2:d > 0 && s.bolts.some(b => b.owner === 0 && length(delta(b.p,ai.p)) < 2.1),
   }
 }

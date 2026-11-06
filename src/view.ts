@@ -11,6 +11,7 @@ import { beamMaterial, Particles, Ribbon, softDot } from './fx'
  *  Red Fire, Yellow Gold Threads, Blue Frost, White Light, Green Nature. */
 const tints = [new T.Color(2.4,.62,.12),new T.Color(2.3,1.45,.4),new T.Color(.5,1.55,2.5),new T.Color(1.35,1.3,1.15),new T.Color(.5,2.1,.55)]
 const SPARK = new T.Color(2.6,2.1,1.5)
+const SILVER = new T.Color(1.6,1.7,1.9)
 const DUST = new T.Color(.16,.2,.32)
 const HAND_Y = 1.18
 
@@ -371,8 +372,11 @@ export function view(canvas: HTMLCanvasElement) {
       group.scale.setScalar(m.dash ? .2 : 1) // blink
       if (m.dash && Math.random() < .8) particles.burst(m.p.x,1,m.p.z,4,2.5,tints[2],.45,0)
 
-      const charging = m.charge > 0
-      const power = Math.min(1,m.charge/1.6)
+      // Casting the Ultimate counts as full power. Placeholder for the cinematic: dense silver
+      // threads whirl around the caster, shading toward the mage's colour.
+      const charging = m.charge > 0 || m.ulting
+      const power = m.ulting ? 1 : Math.min(1,m.charge/1.6)
+      const threadTint = m.ulting ? blend.copy(SILVER).lerp(tint,.35) : tint
       hand.material.color.copy(tint).multiplyScalar(charging ? 1+power : .45)
       hand.scale.setScalar(.095+m.charge*.07+(charging ? .02*Math.sin(time*40) : 0))
       ring.material.color.copy(tint)
@@ -394,7 +398,7 @@ export function view(canvas: HTMLCanvasElement) {
           const rad = (.3+u*.75)*(.55+power*.7)*(.65+(k%3)*.25)
           pts[p].set(m.p.x+Math.cos(ang)*rad,.25+u*2.1+Math.sin(time*2+k)*.08,m.p.z+Math.sin(ang)*rad)
         }
-        r.set(pts,(.015+power*.03)*(k%3 ? .7 : 1.2),tint,camera.position,Math.min(1,m.charge*3)*(.5+.5*Math.sin(time*5+k)))
+        r.set(pts,(.015+power*.03)*(k%3 ? .7 : 1.2),threadTint,camera.position,(m.ulting ? 1 : Math.min(1,m.charge*3))*(.5+.5*Math.sin(time*5+k)))
       }
       // Fire vortex: big flames whirl around a fire caster as the charge builds.
       if (charging && m.element === FIRE && power > .3) {

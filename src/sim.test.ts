@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { beats, delta, ELEMENT_COUNT, FIRE, FROST, GOLD, LIGHT, NATURE, POISON_DPS, pulsePhase, round, step, STEP, unit, type Command, type Duel } from './sim'
 import { decide } from './ai'
 
-const still = (aim = { x:0, z:0 }): Command => ({ move:{x:0,z:0}, aim, hold:false })
+const still = (aim = { x:0, z:0 }): Command => ({ move:{x:0,z:0}, aim, skill1:false })
 const at = (s: Duel, i: number) => unit(delta(s.mages[i].p,s.mages[1-i].p))
 const seconds = (n: number) => Math.round(n/STEP)
 
@@ -13,7 +13,7 @@ describe('exhaustion', () => {
     let stuns = 0
     let prev = 0
     for (let i = 0; i < seconds(10); i++) {
-      step(s,[{ ...still({x:1,z:0}), hold:true }, still()])
+      step(s,[{ ...still({x:1,z:0}), skill1:true }, still()])
       if (s.mages[0].stun > prev+.5) stuns++
       prev = s.mages[0].stun
     }
@@ -28,8 +28,8 @@ describe('rival AI', () => {
     let last = false
     for (let i = 0; i < seconds(20); i++) {
       const c = decide(s,1)
-      if (c.hold !== last) toggles++
-      last = c.hold
+      if (c.skill1 !== last) toggles++
+      last = c.skill1
       step(s,[still(),c])
       s.mages[0].hp = 100
     }
@@ -41,10 +41,10 @@ function clash(difficulty: number, pulsing = true) {
   const s = round()
   s.mages[1].element = 0
   for (let i = 0; i < seconds(30); i++) {
-    const ai = { ...decide(s,difficulty), hold:true }
+    const ai = { ...decide(s,difficulty), skill1:true }
     const pulse = pulsing && s.clash !== null && pulsePhase(s.clash.age) > .5 && pulsePhase(s.clash.age) < .52
     const hp = [s.mages[0].hp,s.mages[1].hp]
-    step(s,[{ ...still(at(s,0)), hold:true, pulse }, ai])
+    step(s,[{ ...still(at(s,0)), skill1:true, pulse }, ai])
     if (s.mages[1].hp <= hp[1]-30) return 'player'
     if (s.mages[0].hp <= hp[0]-30) return 'ai'
   }
@@ -64,7 +64,7 @@ describe('beam clash', () => {
     let resolved = ''
     for (let i = 0; i < seconds(10) && !resolved; i++) {
       const hp = s.mages[0].hp
-      step(s,[{ ...still(at(s,0)), hold:true }, { ...still(at(s,1)), hold:true }])
+      step(s,[{ ...still(at(s,0)), skill1:true }, { ...still(at(s,1)), skill1:true }])
       if (s.mages[0].hp <= hp-30) resolved = 'player lost'
     }
     expect(resolved).toBe('player lost')
@@ -75,7 +75,7 @@ describe('channel commitment', () => {
   it('a strafing target can slip out of a locked-on beam', () => {
     const s = round()
     for (let i = 0; i < seconds(2); i++) {
-      step(s,[{ move:{x:1,z:0}, aim:{x:0,z:-1}, hold:false }, { ...still(at(s,1)), hold:true }])
+      step(s,[{ move:{x:1,z:0}, aim:{x:0,z:-1}, skill1:false }, { ...still(at(s,1)), skill1:true }])
     }
     expect(s.mages[0].hp).toBeGreaterThan(80) // was 63.7
   })
@@ -87,7 +87,7 @@ describe('determinism', () => {
       const s = round()
       for (let i = 0; i < seconds(20); i++) {
         const t = i*STEP
-        step(s,[{ move:{x:Math.cos(t),z:Math.sin(t*.7)}, aim:at(s,0), hold:i%150 < 90, pulse:i%51 === 0, bolt:i%97 === 0 }, decide(s,2)])
+        step(s,[{ move:{x:Math.cos(t),z:Math.sin(t*.7)}, aim:at(s,0), skill1:i%150 < 90, pulse:i%51 === 0, basic:i%97 === 0 }, decide(s,2)])
       }
       return JSON.stringify(s)
     }
@@ -123,7 +123,7 @@ describe('rival interrupts', () => {
     let liveAt = -1
     let boltAt = -1
     for (let i = 0; i < seconds(3) && boltAt < 0; i++) {
-      step(s,[{ ...still(at(s,0)), hold:true }, decide(s,d)])
+      step(s,[{ ...still(at(s,0)), skill1:true }, decide(s,d)])
       if (liveAt < 0 && s.mages[0].charge > .28) liveAt = i*STEP
       if (s.bolts.some(b => b.owner === 1)) boltAt = i*STEP
     }
@@ -153,7 +153,7 @@ describe('five mages', () => {
   })
   it('the element advantage pushes a clash toward the weaker element', () => {
     const s = round([NATURE,FIRE]) // Nature beats Fire
-    for (let i = 0; i < seconds(2); i++) step(s,[{ ...still(at(s,0)), hold:true }, { ...still(at(s,1)), hold:true }])
+    for (let i = 0; i < seconds(2); i++) step(s,[{ ...still(at(s,0)), skill1:true }, { ...still(at(s,1)), skill1:true }])
     expect(s.clash).not.toBeNull()
     expect(s.clash!.position).toBeGreaterThan(.5) // pushed toward the Fire mage
   })
@@ -171,8 +171,8 @@ function beamFor(elements: [number,number], ticks: number, targetShield = false)
   const s = round(elements)
   s.mages[0].p.x = 3 // the target stays out of the way of its own shield clash
   for (let i = 0; i < ticks; i++) {
-    const shielding = targetShield ? { ...still({x:-1,z:0}), hold:true } : still()
-    step(s,[shielding, { ...still(at(s,1)), hold:true }])
+    const shielding = targetShield ? { ...still({x:-1,z:0}), skill1:true } : still()
+    step(s,[shielding, { ...still(at(s,1)), skill1:true }])
     s.mages[0].mana = 100
   }
   return s
@@ -200,11 +200,70 @@ describe('Light and Nature', () => {
     let roots = 0
     let wasRooted = false
     for (let i = 0; i < seconds(2.5); i++) {
-      step(s,[still(), { ...still(at(s,1)), hold:true }])
+      step(s,[still(), { ...still(at(s,1)), skill1:true }])
       s.mages[1].mana = 100
       if (s.mages[0].root > 0 && !wasRooted) roots++
       wasRooted = s.mages[0].root > 0
     }
     expect(roots).toBe(1)
+  })
+})
+
+describe('Basic attack and Ultimate ring', () => {
+  it('basic attack costs no mana', () => {
+    const s = round()
+    s.mages[0].mana = 0
+    step(s,[{ ...still(at(s,0)), basic:true }, still()])
+    expect(s.bolts.filter(b => b.owner === 0 && b.kind === 'basic').length).toBe(1)
+  })
+  it('the Ultimate cannot start until the ring is full', () => {
+    const s = round()
+    s.mages[0].ult = 99
+    step(s,[{ ...still(at(s,0)), ult:true }, still()])
+    expect(s.mages[0].ulting).toBe(false)
+  })
+  it('the ring fills on its own in about 30 s', () => {
+    const s = round()
+    for (let i = 0; i < seconds(29.5); i++) step(s,[still(), still()])
+    expect(s.mages[0].ult).toBeLessThan(100)
+    for (let i = 0; i < seconds(1); i++) step(s,[still(), still()])
+    expect(s.mages[0].ult).toBe(100)
+  })
+  it('holding a full Ultimate drains the ring and rains shots that hurt without stunning', () => {
+    const s = round()
+    s.mages[0].ult = 100
+    s.mages[1].ult = 0
+    let shots = 0
+    let stunned = false
+    for (let i = 0; i < seconds(3); i++) {
+      step(s,[{ ...still(at(s,0)), ult:true }, still()])
+      shots = Math.max(shots,s.bolts.filter(b => b.kind === 'volley').length)
+      if (s.mages[1].stun > 0) stunned = true
+    }
+    expect(s.mages[0].ulting).toBe(false) // spent after ~2.5 s
+    expect(s.mages[0].ult).toBeLessThan(10)
+    expect(s.mages[1].hp).toBeLessThan(80)
+    expect(stunned).toBe(false)
+    expect(shots).toBeGreaterThan(0)
+  })
+  it('releasing early stops the Ultimate, and it needs a full ring again', () => {
+    const s = round()
+    s.mages[0].ult = 100
+    for (let i = 0; i < seconds(.5); i++) step(s,[{ ...still(at(s,0)), ult:true }, still()])
+    step(s,[still(), still()])
+    expect(s.mages[0].ulting).toBe(false)
+    const left = s.mages[0].ult
+    expect(left).toBeGreaterThan(0)
+    step(s,[{ ...still(at(s,0)), ult:true }, still()])
+    expect(s.mages[0].ulting).toBe(false)
+  })
+  it('dealing and taking damage fills both rings faster', () => {
+    const s = round()
+    s.mages[0].ult = s.mages[1].ult = 0
+    step(s,[{ ...still(at(s,0)), basic:true }, still()])
+    for (let i = 0; i < seconds(1); i++) step(s,[still(), still()])
+    const byTime = 100/30
+    expect(s.mages[0].ult).toBeGreaterThan(byTime+2) // dealt 9: +4.5
+    expect(s.mages[1].ult).toBeGreaterThan(byTime+2) // took 9: +2.7
   })
 })
