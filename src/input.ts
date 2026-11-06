@@ -6,10 +6,11 @@ import { delta, length, ULT_RANGE, unit, type Command, type Duel, type Point } f
 // or (Ultimate) drag onto Cancel to call it off. During the Weave's channel the joystick
 // steers the circle, and tapping the Ultimate again releases it early.
 // Desktop: WASD moves (or steers the Weave), the mouse aims, left click = Basic attack,
-// right-click hold or 1 = Skill 1 (beam), 2/3 = Skills 2/3, Space or F = Blink,
-// hold R to aim the Ultimate at the cursor and let go to cast (Esc cancels), E = clash pulse.
+// 1/2/3 = Skills 1–3 (locked until each mage's kit is defined), Space or F = Blink,
+// hold R to aim the Ultimate at the cursor and let go to cast (Esc cancels).
+// The beam (formerly Skill 1) is out of play, so nothing here holds a channel.
 
-type Tap = 'basic' | 'blink' | 'skill2' | 'skill3' | 'pulse'
+type Tap = 'basic' | 'blink' | 'skill1' | 'skill2' | 'skill3'
 /** What the player is aiming right now, for the ground indicators. */
 export type Aiming = { kind: 'line'; dir: Point } | { kind: 'circle'; target: Point; cancel: boolean } | null
 
@@ -23,11 +24,7 @@ export function input(canvas: HTMLCanvasElement, project: (x:number,y:number)=>P
   let mouse: {x:number;y:number}|undefined
   let touchMode = matchMedia('(pointer: coarse)').matches
   let stick = {x:0,z:0}
-  const held = { skill1:new Set<string>() }
   let taps: Partial<Record<Tap,boolean>> = {}
-  let skill1Press = false
-  /** Skill 1 aimed by dragging its button: a ground direction. */
-  let beamDrag: Point | null = null
   /** Ultimate aiming: drag offset in world units from the caster, or the cursor on desktop. */
   let ultAim: { drag: Point | null; cursor: boolean; cancel: boolean } | null = null
   let ultPress = false
@@ -58,10 +55,8 @@ export function input(canvas: HTMLCanvasElement, project: (x:number,y:number)=>P
 
   function reset() {
     keys.clear()
-    held.skill1.clear()
     taps = {}
-    skill1Press = ultPress = false
-    beamDrag = null
+    ultPress = false
     ultAim = null
     cancelEl.hidden = true
     stick = {x:0,z:0}
@@ -72,11 +67,10 @@ export function input(canvas: HTMLCanvasElement, project: (x:number,y:number)=>P
 
   const playing = () => document.querySelector<HTMLElement>('#overlay')!.hidden
   addEventListener('keydown',e => {
-    if (!/^(Key[WASDEFR]|Digit[123]|Space|Escape)$/.test(e.code) || e.repeat || !playing()) return
+    if (!/^(Key[WASDFR]|Digit[123]|Space|Escape)$/.test(e.code) || e.repeat || !playing()) return
     e.preventDefault()
     keys.add(e.code)
-    if (e.code === 'KeyE') taps.pulse = true
-    if (e.code === 'Digit1') { if (!held.skill1.size) skill1Press = true; held.skill1.add('key') }
+    if (e.code === 'Digit1') taps.skill1 = true
     if (e.code === 'Digit2') taps.skill2 = true
     if (e.code === 'Digit3') taps.skill3 = true
     if (e.code === 'Space' || e.code === 'KeyF') taps.blink = true
@@ -89,7 +83,6 @@ export function input(canvas: HTMLCanvasElement, project: (x:number,y:number)=>P
   })
   addEventListener('keyup',e => {
     keys.delete(e.code)
-    if (e.code === 'Digit1') held.skill1.delete('key')
     if (e.code === 'KeyR' && ultAim?.cursor) castUlt()
   })
 
@@ -101,10 +94,6 @@ export function input(canvas: HTMLCanvasElement, project: (x:number,y:number)=>P
     if (e.pointerType !== 'mouse') return
     touchMode = false
     if (e.button === 0) taps.basic = true
-    if (e.button === 2) { if (!held.skill1.size) skill1Press = true; held.skill1.add('mouse') }
-  })
-  addEventListener('pointerup',e => {
-    if (e.pointerType === 'mouse' && e.button === 2) held.skill1.delete('mouse')
   })
 
   // Floating joystick: the base appears where the thumb lands in the left zone.
@@ -160,11 +149,6 @@ export function input(canvas: HTMLCanvasElement, project: (x:number,y:number)=>P
       try { button.setPointerCapture(e.pointerId) } catch { /* synthetic pointer */ }
       const r = button.getBoundingClientRect()
       down = {x:r.left+r.width/2,y:r.top+r.height/2,id:e.pointerId}
-      if (action === 'skill1') {
-        if (!held.skill1.size) skill1Press = true
-        held.skill1.add('button')
-        beamDrag = null
-      }
       if (action === 'ult') {
         if (ulting) { ultPress = true; down = null }
         else {
@@ -172,14 +156,13 @@ export function input(canvas: HTMLCanvasElement, project: (x:number,y:number)=>P
           cancelEl.hidden = false
         }
       }
-      if (action === 'basic' || action === 'blink' || action === 'skill2' || action === 'skill3') taps[action] = true
+      if (action === 'basic' || action === 'blink' || action === 'skill1' || action === 'skill2' || action === 'skill3') taps[action] = true
     })
     button.addEventListener('pointermove',e => {
       if (!down || e.pointerId !== down.id) return
       const dx = e.clientX-down.x
       const dy = e.clientY-down.y
       const d = Math.hypot(dx,dy)
-      if (action === 'skill1' && held.skill1.has('button')) beamDrag = d > DEADZONE ? {x:dx/d,z:dy/d} : null
       if (action === 'ult' && ultAim) {
         ultAim.cancel = overCancel(e.clientX,e.clientY)
         if (d > DEADZONE) {
@@ -191,7 +174,6 @@ export function input(canvas: HTMLCanvasElement, project: (x:number,y:number)=>P
     const up = () => {
       if (!down) return
       down = null
-      if (action === 'skill1') { held.skill1.delete('button'); beamDrag = null }
       if (action === 'ult' && ultAim && !ultAim.cursor) castUlt()
     }
     button.addEventListener('pointerup',up)
@@ -208,7 +190,6 @@ export function input(canvas: HTMLCanvasElement, project: (x:number,y:number)=>P
       player = m.p
       rival = r.p
       if (ultAim) return { kind:'circle', target:ultTargetNow(), cancel:ultAim.cancel }
-      if (held.skill1.size && !m.weave && !s.clash) return { kind:'line', dir:m.aim }
       return null
     },
     sample(s: Duel): Command {
@@ -217,20 +198,17 @@ export function input(canvas: HTMLCanvasElement, project: (x:number,y:number)=>P
       rival = r.p
       ulting = m.weave !== null
       const cursor = !touchMode && mouse ? project(mouse.x,mouse.y) : undefined
-      const aimAt = beamDrag ? {x:m.p.x+beamDrag.x,z:m.p.z+beamDrag.z} : cursor && length(delta(m.p,cursor)) > .3 ? cursor : r.p
+      const aimAt = cursor && length(delta(m.p,cursor)) > .3 ? cursor : r.p
       // Screen-relative movement for the fixed camera: up = -z, right = +x.
       const ahead = Number(keys.has('KeyW'))-Number(keys.has('KeyS'))-stick.z
       const right = Number(keys.has('KeyD'))-Number(keys.has('KeyA'))+stick.x
-      const clashing = s.clash !== null
       const command: Command = {
-        move:{x:right,z:-ahead}, aim:delta(m.p,aimAt),
-        skill1:clashing || held.skill1.size > 0,
+        move:{x:right,z:-ahead}, aim:delta(m.p,aimAt), skill1:false,
         basic:taps.basic, blink:taps.blink, skill2:taps.skill2, skill3:taps.skill3,
         ult:ultPress, ultTarget,
-        pulse:taps.pulse || (clashing && skill1Press),
       }
       taps = {}
-      skill1Press = ultPress = false
+      ultPress = false
       ultTarget = undefined
       if (length(command.move) > 1) command.move = unit(command.move)
       return command
