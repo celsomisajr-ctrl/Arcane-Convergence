@@ -1,5 +1,7 @@
 # Arcane Convergence
 
+**Play:** https://celsomisajr-ctrl.github.io/Arcane-Convergence/
+
 A standalone 3D mage duel greybox. Fight an AI rival in a best-of-three match.
 
 ```sh
@@ -15,6 +17,6 @@ The simulation in `src/sim.ts` advances serializable duel state at 60 ticks per 
 
 ## Build and GitHub Pages
 
-Run `npm run build` to type-check and produce `dist/`, then `npm run preview` to preview the build locally. Vite uses relative asset URLs so the output can be hosted at a GitHub Pages repository subpath. A future Pages workflow can build with `npm ci && npm run build` and deploy `dist/` after publishing is approved.
+Run `npm run build` to type-check and produce `dist/`, then `npm run preview` to preview the build locally. Vite uses relative asset URLs so the output can be hosted at a GitHub Pages repository subpath. Every push to `main` runs the tests, builds, and deploys `dist/` to GitHub Pages (`.github/workflows/pages.yml`). Pull requests run the tests and build (`ci.yml`).
 
 The slice uses procedural geometry and colors. Audio, finished character art and effects, and physical-device performance validation remain for later passes.
