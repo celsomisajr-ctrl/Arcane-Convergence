@@ -10,9 +10,11 @@ export function input(canvas: HTMLCanvasElement, project: (x:number,y:number)=>P
   let stick = {x:0,z:0}
   let taps: Partial<Command> = {}
   let cycle = false
+  /** A fresh Channel press since the last tick; during a clash it counts as a pulse. */
+  let channelTap = false
   function reset() {
     keys.clear()
-    mouseHeld = touchHeld = cycle = false
+    mouseHeld = touchHeld = cycle = channelTap = false
     stick = {x:0,z:0}
     taps = {}
     document.querySelector<HTMLElement>('#stick i')!.style.transform = ''
@@ -37,7 +39,10 @@ export function input(canvas: HTMLCanvasElement, project: (x:number,y:number)=>P
   canvas.addEventListener('pointerdown',e => {
     if (e.pointerType !== 'mouse') return
     touchMode = false
-    if (e.button === 0) mouseHeld = true
+    if (e.button === 0) {
+      mouseHeld = true
+      channelTap = true
+    }
     if (e.button === 2) taps.bolt = true
   })
   addEventListener('pointerup',e => {
@@ -74,6 +79,7 @@ export function input(canvas: HTMLCanvasElement, project: (x:number,y:number)=>P
       if (action === 'hold') {
         button.setPointerCapture(e.pointerId)
         touchHeld = true
+        channelTap = true
       }
       if (action === 'element') cycle = true
       if (action === 'dash' || action === 'bolt' || action === 'pulse') taps[action] = true
@@ -94,7 +100,13 @@ export function input(canvas: HTMLCanvasElement, project: (x:number,y:number)=>P
       const ahead = Number(keys.has('KeyW'))-Number(keys.has('KeyS'))-stick.z
       const right = Number(keys.has('KeyD'))-Number(keys.has('KeyA'))+stick.x
       const move = { x:f.x*ahead-f.z*right, z:f.z*ahead+f.x*right }
-      const command = {move,aim,hold:mouseHeld || touchHeld,...taps}
+      // In a clash the channel stays held on its own, and each fresh Channel press is a pulse,
+      // so a phone player taps one button instead of holding Channel while tapping Pulse.
+      // Blink is the deliberate way out of a clash.
+      const clashing = s.clash !== null
+      const command = {move,aim,hold:clashing || mouseHeld || touchHeld,...taps}
+      if (clashing && channelTap) command.pulse = true
+      channelTap = false
       if (cycle) command.element = (player.element+1)%3
       taps = {}
       cycle = false
