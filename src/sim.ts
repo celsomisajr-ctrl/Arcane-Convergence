@@ -2,7 +2,7 @@ export const STEP = 1 / 60
 export const LIMIT = 9
 export type Point = { x: number; z: number }
 export type Command = { move: Point; aim: Point; hold: boolean; bolt?: boolean; dash?: boolean; pulse?: boolean; element?: number }
-export type Mage = { p: Point; aim: Point; hp: number; mana: number; charge: number; stun: number; dash: number; cooldown: number; element: number; slow: number; quick: number; velocity: Point }
+export type Mage = { p: Point; aim: Point; hp: number; mana: number; charge: number; stun: number; dash: number; cooldown: number; element: number; slow: number; quick: number; velocity: Point; spent: boolean }
 type Bolt = { p: Point; v: Point; owner: number; element: number; power: number; life: number }
 export const clamp = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x))
 export const delta = (a: Point, b: Point) => ({ x: b.x - a.x, z: b.z - a.z })
@@ -13,7 +13,7 @@ export function unit(v: Point): Point {
 }
 const dot = (a: Point, b: Point) => a.x * b.x + a.z * b.z
 function mage(z: number): Mage {
-  return { p: {x:0,z}, aim: {x:0,z:-Math.sign(z)}, hp:100, mana:100, charge:0, stun:0, dash:0, cooldown:0, element:0, slow:0, quick:0, velocity:{x:0,z:0} }
+  return { p: {x:0,z}, aim: {x:0,z:-Math.sign(z)}, hp:100, mana:100, charge:0, stun:0, dash:0, cooldown:0, element:0, slow:0, quick:0, velocity:{x:0,z:0}, spent:false }
 }
 export function round() {
   return { mages: [mage(5), mage(-5)], bolts: [] as Bolt[], clash: null as null | { position: number; age: number; attempts: number[] }, time:0, impact:0 }
@@ -28,6 +28,40 @@ function fire(s: Duel, i: number, power: number) {
   const m = s.mages[i]
   s.bolts.push({ p:{...m.p}, v:{...m.aim}, owner:i, element:m.element, power, life:1 })
 }
+/** Mana needed to begin a channel. A channel already running drains until empty. */
+export const CHANNEL_MIN_MANA = 12
+/** Charge at which the beam is live (visible, damaging, able to clash). */
+export const BEAM_ACTIVE = .28
+/** Max aim turn speed while the beam is live (rad/s), so a strafing target can slip out. */
+export const CHANNEL_TURN_RATE = .3
+/** Mana drain multiplier during a clash, so the tug-of-war decides more clashes than mana does. */
+export const CLASH_DRAIN = .5
+/** Half-width of the strip a beam hits: beam radius plus a mage's body. */
+export const BEAM_REACH = .75
+/** True when mage `m`'s aim line passes through `other` (within beam width, in front, in range). */
+export function beamReaches(m: Mage, other: Mage) {
+  const off = delta(m.p,other.p)
+  const ahead = dot(off,m.aim)
+  return ahead > 0 && ahead < 18 && Math.abs(m.aim.x*off.z-m.aim.z*off.x) < BEAM_REACH
+}
+function turnToward(from: Point, to: Point, maxAngle: number): Point {
+  const a = Math.atan2(from.x,from.z)
+  let d = Math.atan2(to.x,to.z)-a
+  d = Math.atan2(Math.sin(d),Math.cos(d))
+  const r = a+clamp(d,-maxAngle,maxAngle)
+  return { x:Math.sin(r), z:Math.cos(r) }
+}
+function loseClash(s: Duel, loserIndex: number) {
+  const [a,b] = s.mages
+  const loser = s.mages[loserIndex]
+  loser.hp = Math.max(0,loser.hp-34)
+  loser.stun = .7
+  shift(loser,unit(delta(a.p,b.p)),loserIndex === 1 ? 2.5 : -2.5)
+  a.charge = b.charge = 0
+  a.quick = b.quick = .35
+  s.clash = null
+  s.impact = .45
+}
 export function step(s: Duel, commands: readonly Command[]) {
   if (s.mages.some(m => m.hp <= 0)) return
   s.time += STEP
@@ -39,8 +73,11 @@ export function step(s: Duel, commands: readonly Command[]) {
     m.cooldown = Math.max(0,m.cooldown-STEP)
     m.slow = Math.max(0,m.slow-STEP)
     m.quick = Math.max(0,m.quick-STEP)
-    if (length(c.aim) > 0 && !s.clash) m.aim = unit(c.aim)
+    if (length(c.aim) > 0 && !s.clash) {
+      m.aim = m.charge > BEAM_ACTIVE ? turnToward(m.aim,unit(c.aim),CHANNEL_TURN_RATE*STEP) : unit(c.aim)
+    }
     if (c.element !== undefined && c.element >= 0 && c.element < 3 && !m.charge) m.element = c.element
+    if (!c.hold) m.spent = false
     if (m.stun) continue
     const movement = length(c.move) > 1 ? unit(c.move) : c.move
     if (c.dash && !m.cooldown) {
@@ -59,12 +96,15 @@ export function step(s: Duel, commands: readonly Command[]) {
       m.mana -= 10
       m.quick = .55
       fire(s,i,9)
-    } else if (c.hold && !m.quick) {
+    } else if (c.hold && !m.quick && (m.charge > 0 || (m.mana >= CHANNEL_MIN_MANA && !m.spent))) {
       m.charge = Math.min(1.6,m.charge+STEP)
-      m.mana = Math.max(0,m.mana-STEP*[23,17,15][m.element])
+      m.mana = Math.max(0,m.mana-STEP*[23,17,15][m.element]*(s.clash ? CLASH_DRAIN : 1))
       if (!m.mana) {
+        // Running dry mid-clash loses it; the exhaustion stun below still applies.
+        if (s.clash) loseClash(s,i)
         m.charge = 0
         m.stun = .9
+        m.spent = true // must release the button before channeling again
       }
     } else {
       if (m.charge > .12 && !s.clash) fire(s,i,4+8*m.charge)
@@ -79,8 +119,7 @@ export function step(s: Duel, commands: readonly Command[]) {
     shift(a,axis,-(1-distance)/2)
     shift(b,axis,(1-distance)/2)
   }
-  const aligned = [dot(a.aim,axis) > .985, dot(b.aim,axis) < -.985]
-  const engaged = s.mages.map((m,i) => m.charge > .28 && distance < 18 && aligned[i])
+  const engaged = s.mages.map((m,i) => m.charge > BEAM_ACTIVE && beamReaches(m,s.mages[1-i]))
   if (engaged.every(Boolean)) {
     const clash = s.clash ??= {position:.5,age:0,attempts:[-1,-1]}
     clash.age += STEP
@@ -97,16 +136,7 @@ export function step(s: Duel, commands: readonly Command[]) {
       attempts[i] = beatIndex
       clash.position += (beat ? .19 : -.035)*(i === 0 ? 1 : -1)
     })
-    if (clash.position >= 1 || clash.position <= 0) {
-      const loser = clash.position >= 1 ? b : a
-      loser.hp = Math.max(0,loser.hp-34)
-      loser.stun = .7
-      shift(loser,axis,loser === b ? 2.5 : -2.5)
-      a.charge = b.charge = 0
-      a.quick = b.quick = .35
-      s.clash = null
-      s.impact = .45
-    }
+    if (clash.position >= 1 || clash.position <= 0) loseClash(s,clash.position >= 1 ? 1 : 0)
   } else {
     s.clash = null
     s.mages.forEach((m,i) => {
