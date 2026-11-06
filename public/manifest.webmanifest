@@ -1,0 +1,10 @@
+{
+  "name": "Arcane Convergence",
+  "short_name": "Arcane",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#070a12",
+  "theme_color": "#070a12"
+}
