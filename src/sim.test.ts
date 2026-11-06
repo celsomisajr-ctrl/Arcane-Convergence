@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { delta, pulsePhase, round, step, STEP, unit, type Command, type Duel } from './sim'
-import { decide } from './ai'
+import { decide, counterOf } from './ai'
 
 const still = (aim = { x:0, z:0 }): Command => ({ move:{x:0,z:0}, aim, hold:false })
 const at = (s: Duel, i: number) => unit(delta(s.mages[i].p,s.mages[1-i].p))
@@ -92,5 +92,59 @@ describe('determinism', () => {
       return JSON.stringify(s)
     }
     expect(run()).toBe(run())
+  })
+})
+
+function idleKo(difficulty: number) {
+  const s = round()
+  let t = 0
+  while (s.mages[0].hp > 0 && t < 60) {
+    step(s,[still(at(s,0)), decide(s,difficulty)])
+    t += STEP
+  }
+  return t
+}
+
+describe('difficulty scaling', () => {
+  it('an idle player survives longer on easier difficulties', () => {
+    const [app, adept, arch] = [0,1,2].map(idleKo)
+    expect(app).toBeGreaterThanOrEqual(12)
+    expect(adept).toBeGreaterThan(7)
+    expect(adept).toBeLessThan(10)
+    expect(arch).toBeLessThanOrEqual(6.5)
+  })
+})
+
+describe('rival interrupts', () => {
+  it.each([[0,.7],[1,.45],[2,.25]])('difficulty %i bolts a live beam within its reaction delay', (d, delay) => {
+    const s = round()
+    s.time = 1 // a quiet part of the rival's attack cycle
+    s.mages[1].mana = 30 // enough to bolt, too little to start its own channel
+    let liveAt = -1
+    let boltAt = -1
+    for (let i = 0; i < seconds(3) && boltAt < 0; i++) {
+      step(s,[{ ...still(at(s,0)), hold:true }, decide(s,d)])
+      if (liveAt < 0 && s.mages[0].charge > .28) liveAt = i*STEP
+      if (s.bolts.some(b => b.owner === 1)) boltAt = i*STEP
+    }
+    expect(liveAt).toBeGreaterThan(0)
+    expect(boltAt-liveAt).toBeGreaterThanOrEqual(delay-STEP*2)
+    expect(boltAt-liveAt).toBeLessThanOrEqual(delay+.2)
+  })
+})
+
+describe('element choice', () => {
+  it('Archmage counter-picks a channeling player', () => {
+    for (const e of [0,1,2]) {
+      const s = round()
+      s.mages[0].element = e
+      s.mages[0].charge = .5
+      expect(decide(s,2).element).toBe(counterOf(e))
+    }
+  })
+  it('counterOf follows Fire > Gold > Frost > Fire', () => {
+    expect(counterOf(1)).toBe(0) // Fire beats Gold
+    expect(counterOf(2)).toBe(1) // Gold beats Frost
+    expect(counterOf(0)).toBe(2) // Frost beats Fire
   })
 })

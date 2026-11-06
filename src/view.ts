@@ -17,6 +17,10 @@ export function view(canvas: HTMLCanvasElement) {
   composer.addPass(new UnrealBloomPass(new T.Vector2(),.68,.45,.55))
   composer.addPass(new OutputPass())
   const mobile = matchMedia('(pointer: coarse)').matches
+  // ?lowfx=1 skips bloom (for slow phones).
+  const lowfx = new URLSearchParams(location.search).has('lowfx')
+  /** Smoothed ground direction the camera faces outside a clash. */
+  const camDir = { x:0, z:-1 }
   function resize() {
     const width = canvas.clientWidth
     const height = Math.max(1,canvas.clientHeight)
@@ -107,8 +111,17 @@ export function view(canvas: HTMLCanvasElement) {
       eye.set(centerX-fz/distance*(camera.aspect < 1 ? 19 : 11),5,centerZ+fx/distance*(camera.aspect < 1 ? 19 : 11))
       target.set(centerX,1.25,centerZ)
     } else {
-      eye.set(a.p.x-.85,4.9,a.p.z+6.2)
-      target.set(a.p.x+fx*.28,1.05,a.p.z-3.5)
+      // Over the shoulder: behind the player, facing the rival, turning smoothly.
+      const k = 1-Math.exp(-dt*4)
+      camDir.x += (fx/distance-camDir.x)*k
+      camDir.z += (fz/distance-camDir.z)*k
+      const n = Math.hypot(camDir.x,camDir.z) || 1
+      camDir.x /= n
+      camDir.z /= n
+      const rx = -camDir.z
+      const rz = camDir.x
+      eye.set(a.p.x-camDir.x*6.2-rx*.85,4.9,a.p.z-camDir.z*6.2-rz*.85)
+      target.set(a.p.x+camDir.x*3.5,1.05,a.p.z+camDir.z*3.5)
     }
     const shake = (s.impact*.65 + (clash ? .028 : 0))*Math.sin(performance.now()*.066)
     eye.x += shake
@@ -166,12 +179,14 @@ export function view(canvas: HTMLCanvasElement) {
       mesh.scale.setScalar(.12+bolt.power*.006)
     })
     for (let i=s.bolts.length;i<pool.length;i++) pool[i].visible = false
-    if (mobile) renderer.render(scene,camera)
+    if (lowfx) renderer.render(scene,camera)
     else composer.render()
   }
   camera.position.set(0,4.9,11)
   return {
     draw,
+    /** Camera's ground-plane forward direction, for camera-relative movement. */
+    forward: () => ({ x:camDir.x, z:camDir.z }),
     aim(x:number,y:number) {
       const r = canvas.getBoundingClientRect()
       raycaster.setFromCamera(new T.Vector2((x-r.left)/r.width*2-1,1-(y-r.top)/r.height*2),camera)
