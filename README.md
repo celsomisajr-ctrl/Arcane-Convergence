@@ -17,6 +17,6 @@ The simulation in `src/sim.ts` advances serializable duel state at 60 ticks per 
 
 ## Build and GitHub Pages
 
-Run `npm run build` to type-check and produce `dist/`, then `npm run preview` to preview the build locally. Vite uses relative asset URLs so the output can be hosted at a GitHub Pages repository subpath. Every push to `main` runs the tests, builds, and deploys `dist/` to GitHub Pages (`.github/workflows/pages.yml`). Pull requests run the tests and build (`ci.yml`).
+Run `npm run build` to type-check and produce `dist/`, then `npm run preview` to preview the build locally. Vite uses relative asset URLs so the output can be hosted at a GitHub Pages repository subpath. Every push to `main` runs the tests, builds, and publishes `dist/` to the `gh-pages` branch, which GitHub Pages serves (`.github/workflows/pages.yml`). Pull requests run the tests and build (`ci.yml`).
 
 The slice uses procedural geometry and colors. Audio, finished character art and effects, and physical-device performance validation remain for later passes.
